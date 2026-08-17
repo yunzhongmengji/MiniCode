@@ -21,9 +21,9 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - [评测方案](docs/EVALUATION.md)
 - [威胁模型](docs/THREAT_MODEL.md)
 - [学习日志](docs/LEARNING_LOG.md)
+- [中文学习笔记](docs/learning/README.md)
 - [架构决策记录](docs/adr/)
 
 ## 项目定位
 
 第一版目标是成为一个能够在真实中型 Python 仓库上安全完成代码问答、局部修改、测试与审计的工程原型。任何效率、成功率或成本收益，都必须来自固定数据集、原始运行记录和可复现实验，未测量前不写入简历。
-

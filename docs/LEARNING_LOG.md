@@ -80,3 +80,5 @@
 | 2026-08-12 | M0 信任边界 | 完成 | 能区分模型建议与执行权限；理解 Policy 的 Allow/Ask/Deny，以及 Executor 与 OS Sandbox 的纵深防御关系 |
 | 2026-08-12 | M0 阶段门禁 | 通过 | 已完成 CLI 骨架、离线测试、工具链和威胁模型学习；进入 M1 数据协议与 Fake Model |
 | 2026-08-17 | M1 基础数据协议 | 完成 | 亲手实现 Message、ToolCall、ToolResult；能解释运行时校验、浅/深不可变、防御性复制、只读代理、递归 JSON 类型及 TypeError/ValueError 边界；27 个离线测试通过 |
+| 2026-08-21 | M1 模型抽象与 Fake | 通过 | 实现 ModelResponse、异步 Model Protocol 和 ScriptedModel；能解释依赖反转、Protocol、async/await、浅复制和容器可变性；独立完成响应列表复制与两轮工具脚本变式；44 个 pytest 用例、Ruff 和 mypy 严格门禁通过 |
+| 2026-08-21 | M1 阶段门禁 | 通过 | 能画出 Message → Model → ModelResponse → ToolCall/ToolResult 数据流，指出响应耗尽、无动作响应和调用者别名等失败模式；准备进入 M2 最小 Query Loop |

@@ -82,3 +82,16 @@
 | 2026-08-17 | M1 基础数据协议 | 完成 | 亲手实现 Message、ToolCall、ToolResult；能解释运行时校验、浅/深不可变、防御性复制、只读代理、递归 JSON 类型及 TypeError/ValueError 边界；27 个离线测试通过 |
 | 2026-08-21 | M1 模型抽象与 Fake | 通过 | 实现 ModelResponse、异步 Model Protocol 和 ScriptedModel；能解释依赖反转、Protocol、async/await、浅复制和容器可变性；独立完成响应列表复制与两轮工具脚本变式；44 个 pytest 用例、Ruff 和 mypy 严格门禁通过 |
 | 2026-08-21 | M1 阶段门禁 | 通过 | 能画出 Message → Model → ModelResponse → ToolCall/ToolResult 数据流，指出响应耗尽、无动作响应和调用者别名等失败模式；准备进入 M2 最小 Query Loop |
+| 2026-08-22 | M2 最小 Query Loop | 完成 | 实现结构化 ConversationItem、Model/ToolRuntime 协议、四种 StopReason、RunResult、双预算和工具错误反馈；82 个测试、Ruff 与 mypy 门禁通过 |
+| 2026-08-22 | M2 学习门禁 | 通过 | 能解释循环数据流、停止状态、工具错误与异常边界；独立实现 MAX_TOOL_CALLS 终止条件、参数校验和整批拒绝测试；准备进入 M3 Tool Runtime |
+
+## 2026-08-22 / M2 / 最小 Query Loop 复盘
+
+- 我能画出的数据流：Message → ModelResponse → ToolCall → ToolRuntime → ToolResult → 下一轮 Model。
+- 关键设计取舍：使用结构化历史；执行前检查预算；批次超预算时整批拒绝。
+- 失败模式：模型响应耗尽、Runtime 异常、轮次耗尽、工具调用预算耗尽。
+- 独立变式：新增 MAX_TOOL_CALLS，并验证第二个工具和超预算批次不会执行。
+- 当前测试证据：82 个 pytest 用例，Ruff 和 mypy 全部通过。
+- 需要回补：停止原因优先级；ToolResult 业务失败与 Runtime 异常的区别。
+- 下一次复习日期：2026-08-29。
+- 是否通过学习门禁：通过。

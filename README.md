@@ -11,7 +11,7 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - 中心化多 Agent 调度与最小权限
 - 可执行 Benchmark、故障注入和安全红队
 
-当前状态：M0 开工准备。
+当前状态：M2 最小 Query Loop 已完成，准备进入 M3 Tool Runtime。
 
 ## 项目证据
 
@@ -20,6 +20,7 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - [同类项目调研](docs/research/landscape.md)
 - [评测方案](docs/EVALUATION.md)
 - [威胁模型](docs/THREAT_MODEL.md)
+- [Query Loop 设计](docs/QUERY_LOOP.md)
 - [学习日志](docs/LEARNING_LOG.md)
 - [中文学习笔记](docs/learning/README.md)
 - [架构决策记录](docs/adr/)

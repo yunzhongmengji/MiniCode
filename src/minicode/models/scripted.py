@@ -3,7 +3,7 @@
 from collections import deque
 from collections.abc import Sequence
 
-from minicode.core.messages import Message
+from minicode.core.conversation import ConversationItem
 from minicode.core.model import ModelResponse
 
 
@@ -25,16 +25,16 @@ class ScriptedModel:
                 raise TypeError("responses must contain only ModelResponse instances")
 
         self._responses: deque[ModelResponse] = deque(responses)
-        self._calls: list[tuple[Message, ...]] = []
+        self._calls: list[tuple[ConversationItem, ...]] = []
 
     @property
-    def calls(self) -> tuple[tuple[Message, ...], ...]:
+    def calls(self) -> tuple[tuple[ConversationItem, ...], ...]:
         """Return immutable snapshots of received message histories."""
         return tuple(self._calls)
 
     async def complete(
         self,
-        messages: Sequence[Message],
+        messages: Sequence[ConversationItem],
     ) -> ModelResponse:
         """Record the messages and return the next prepared response."""
         self._calls.append(tuple(messages))

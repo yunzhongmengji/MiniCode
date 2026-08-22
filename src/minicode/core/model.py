@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from minicode.core.messages import Message
+from minicode.core.conversation import ConversationItem
 from minicode.core.tool_calls import ToolCall
 
 
@@ -47,7 +47,7 @@ class Model(Protocol):
 
     async def complete(
         self,
-        messages: Sequence[Message],
+        messages: Sequence[ConversationItem],
     ) -> ModelResponse:
         """Generate the next response from the conversation history."""
         ...

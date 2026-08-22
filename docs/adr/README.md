@@ -14,4 +14,5 @@ ADR 用于记录对系统边界有长期影响的决定。
 已记录：
 
 - [ADR-0001：从基础协议构建 Agent Runtime](0001-build-agent-runtime-from-primitives.md)
-
+- [ADR-0002：使用结构化历史与执行前预算](0002-structured-query-loop-and-budgets.md)
+- [ADR-0002：使用结构化历史与执行前预算](0002-structured-query-loop-and-budgets.md)

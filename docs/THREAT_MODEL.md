@@ -1,6 +1,6 @@
 # MiniCode 威胁模型
 
-状态：M0 初稿；每次新增 Tool、Memory 或 Agent 能力时复审
+状态：M3 已复审；每次新增 Tool、Memory 或 Agent 能力时继续复审
 
 ## 1. 需要保护的资产
 
@@ -75,5 +75,20 @@ OS Sandbox / Container：最终隔离边界
 
 ## 7. 已知限制
 
-M5 以前只实现应用层边界，不宣称可以安全开放任意 Shell。M12 才引入容器或同等级隔离并完成系统化红队。在此之前，仅开放精简、结构化的 Coding Tools。
+当前已实现的控制：
 
+- Tool 参数使用严格、禁止额外字段且冻结的 Pydantic Schema。
+- Registry 拒绝重复工具名，避免静默覆盖已有能力。
+- Dispatcher 在执行前验证参数，并区分未知工具、参数错误和可预期执行失败。
+- Workspace 解析真实路径，拒绝父级跳转、绝对路径和指向工作区外的符号链接。
+- ReadFileTool 只读取 UTF-8 文本，并设置可配置的正整数 byte 上限。
+
+仍然存在的限制：
+
+- Workspace 的“解析—检查—打开”不是原子操作，仍存在符号链接被并发替换的 TOCTOU 风险。
+- Workspace 尚未原子确认目标为普通文件；FIFO、设备文件或特殊挂载仍需要文件类型规则、超时与 OS Sandbox 防护。
+- 尚未实现 Policy、Approval、Event Ledger、秘密脱敏和 OS Sandbox。
+- 尚未开放写文件、搜索、编辑或任意命令执行能力。
+- 应用层规则不能替代 OS 级隔离，不宣称当前版本可以安全开放任意 Shell。
+
+M12 才引入容器或同等级隔离并完成系统化红队。在此之前，仅开放精简、结构化、受测试的 Coding Tools。

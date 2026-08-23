@@ -84,6 +84,8 @@
 | 2026-08-21 | M1 阶段门禁 | 通过 | 能画出 Message → Model → ModelResponse → ToolCall/ToolResult 数据流，指出响应耗尽、无动作响应和调用者别名等失败模式；准备进入 M2 最小 Query Loop |
 | 2026-08-22 | M2 最小 Query Loop | 完成 | 实现结构化 ConversationItem、Model/ToolRuntime 协议、四种 StopReason、RunResult、双预算和工具错误反馈；82 个测试、Ruff 与 mypy 门禁通过 |
 | 2026-08-22 | M2 学习门禁 | 通过 | 能解释循环数据流、停止状态、工具错误与异常边界；独立实现 MAX_TOOL_CALLS 终止条件、参数校验和整批拒绝测试；准备进入 M3 Tool Runtime |
+| 2026-08-23 | M3 Tool Runtime | 完成 | 实现严格 Pydantic ToolArguments、不可变 ToolSpec、Tool Protocol、拒绝重复名称的 Registry、统一 Dispatcher、Workspace 与受限 ReadFileTool；136 个测试、Ruff 与 mypy 门禁通过 |
+| 2026-08-23 | M3 学习门禁 | 通过 | 能解释 Tool/Spec/Registry/Dispatcher 分工、Protocol 替换、验证前置、异常转换、路径逃逸、符号链接、字节预算及 Workspace 与 OS Sandbox 的边界；准备进入 M4 Model Adapter |
 
 ## 2026-08-22 / M2 / 最小 Query Loop 复盘
 
@@ -94,4 +96,16 @@
 - 当前测试证据：82 个 pytest 用例，Ruff 和 mypy 全部通过。
 - 需要回补：停止原因优先级；ToolResult 业务失败与 Runtime 异常的区别。
 - 下一次复习日期：2026-08-29。
+- 是否通过学习门禁：通过。
+
+## 2026-08-23 / M3 / Tool Runtime 复盘
+
+- 我能画出的数据流：ToolCall → ToolDispatcher → ToolRegistry → ToolSpec.arguments_type → Tool.execute → ToolResult。
+- 关键设计取舍：核心 ToolSpec 保持 Provider 无关；严格 Schema 在副作用前验证；可预期工具失败进入 Agent 闭环，意外程序错误保留 traceback 并向外抛出。
+- 安全边界：Workspace 解析真实绝对路径，拒绝父级跳转、绝对路径和外部符号链接；ReadFileTool 使用字节上限和 UTF-8 严格解码。
+- 失败模式：重复工具静默覆盖、错误类型被 Pydantic 自动转换、非法参数触发副作用、越界读取、权限错误误分类、测试替身接口过期、重复测试函数被后定义覆盖。
+- 测试方法：使用 tmp_path 构造隔离文件树，使用 monkeypatch 稳定注入权限错误，使用参数化测试覆盖类型和值边界，使用 mypy 证明 ToolDispatcher 满足 ToolRuntime Protocol。
+- 当前测试证据：136 个 pytest 用例，Ruff、格式检查、mypy 和 git diff 检查全部通过。
+- 仍然模糊或待复习：应用层路径检查的 TOCTOU 限制；真实 Provider 工具格式适配；Token 预算与字节预算的换算关系。
+- 下一次复习日期：2026-08-30。
 - 是否通过学习门禁：通过。

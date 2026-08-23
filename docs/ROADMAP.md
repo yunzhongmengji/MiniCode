@@ -1,6 +1,6 @@
 # 学习与实现路线
 
-状态：M0、M1、M2 已完成，准备进入 M3
+状态：M0、M1、M2、M3 已完成，准备进入 M4
 节奏：按掌握程度推进，而不是机械追赶周数
 
 ## 1. 教学策略
@@ -82,10 +82,10 @@
 
 ## 5. 当前下一步
 
-M3 Tool Runtime：
+M4 Model Adapter：
 
-1. 定义 Tool 协议、名称、描述和参数 Schema。
-2. 实现 Tool Registry，处理注册、重复名称和未知工具。
-3. 实现 Dispatcher，校验参数并把 ToolCall 路由到具体 Tool。
-4. 将可预期工具失败统一转换为 ToolResult。
-5. 先使用无副作用的确定性 Tool 完成测试，再进入真实 Coding Tools。
+1. 扩展 Model 边界，使 Provider Adapter 能获得稳定、有序的 ToolSpec 列表。
+2. 选择一个真实 Provider，实现消息、工具定义、ToolCall 与 ToolResult 的双向转换。
+3. 将 Provider SDK 异常分为可重试、限流、认证和不可恢复错误。
+4. 使用 ScriptedModel 保留离线确定性测试，并增加受控的真实 Provider 集成测试。
+5. 记录请求轮次、延迟、Token 与错误分类，为后续 Benchmark 建立原始证据。

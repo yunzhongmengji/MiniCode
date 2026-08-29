@@ -6,8 +6,9 @@ from enum import StrEnum
 
 from minicode.core.conversation import ConversationItem
 from minicode.core.messages import Message, MessageRole
-from minicode.core.model import Model, ModelResponse
+from minicode.core.model import Model, ModelRequest, ModelResponse
 from minicode.core.tool_runtime import ToolRuntime
+from minicode.tools.spec import ToolSpec
 
 
 class StopReason(StrEnum):
@@ -63,6 +64,7 @@ class QueryLoop:
         max_turns: int = 1,
         tool_runtime: ToolRuntime | None = None,
         max_tool_calls: int = 8,
+        tool_specs: Sequence[ToolSpec] = (),
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -79,10 +81,21 @@ class QueryLoop:
         if max_tool_calls <= 0:
             raise ValueError("max_tool_calls must be greater than zero")
 
+        if not isinstance(tool_specs, Sequence) or isinstance(
+            tool_specs,
+            (str, bytes),
+        ):
+            raise TypeError("tool_specs must be a sequence")
+
+        for tool_spec in tool_specs:
+            if not isinstance(tool_spec, ToolSpec):
+                raise TypeError("tool_specs must contain only ToolSpec instances")
+
         self._model = model
         self._max_turns = max_turns
         self._tool_runtime = tool_runtime
         self._max_tool_calls = max_tool_calls
+        self._tool_specs = tuple(tool_specs)
 
     async def run(
         self,
@@ -93,7 +106,11 @@ class QueryLoop:
         tool_calls_used = 0
 
         for turn in range(1, self._max_turns + 1):
-            response = await self._model.complete(message_history)
+            request = ModelRequest(
+                conversation=message_history,
+                tool_specs=self._tool_specs,
+            )
+            response = await self._model.complete(request)
 
             if not response.tool_calls:
                 return RunResult(

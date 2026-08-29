@@ -1,6 +1,6 @@
 # 学习与实现路线
 
-状态：M0、M1、M2、M3 已完成，准备进入 M4
+状态：M0、M1、M2、M3 已完成，M4 进行中
 节奏：按掌握程度推进，而不是机械追赶周数
 
 ## 1. 教学策略
@@ -84,8 +84,9 @@
 
 M4 Model Adapter：
 
-1. 扩展 Model 边界，使 Provider Adapter 能获得稳定、有序的 ToolSpec 列表。
-2. 选择一个真实 Provider，实现消息、工具定义、ToolCall 与 ToolResult 的双向转换。
-3. 将 Provider SDK 异常分为可重试、限流、认证和不可恢复错误。
-4. 使用 ScriptedModel 保留离线确定性测试，并增加受控的真实 Provider 集成测试。
-5. 记录请求轮次、延迟、Token 与错误分类，为后续 Benchmark 建立原始证据。
+1. 已完成：扩展 Model 边界，使 Provider Adapter 能获得稳定、有序的 ToolSpec 列表。
+2. 已完成：接入 Alibaba Model Studio，实现消息、工具定义、ToolCall 与 ToolResult 的双向转换。
+3. 已完成：将 Provider SDK 异常分为认证、额度、权限、限流、连接、服务和协议错误。
+4. 已完成：保留 ScriptedModel 离线测试，并完成受控的真实文本与 read-file 工具闭环 smoke test。
+5. 进行中：实现流式响应，并明确取消与总时限边界。
+6. 待完成：记录请求轮次、延迟、Token 与错误分类，为后续 Benchmark 建立原始证据。

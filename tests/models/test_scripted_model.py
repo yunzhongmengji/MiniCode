@@ -1,7 +1,7 @@
 import pytest
 
 from minicode.core.messages import Message, MessageRole
-from minicode.core.model import ModelResponse
+from minicode.core.model import ModelRequest, ModelResponse
 from minicode.core.tool_calls import ToolCall
 from minicode.models.scripted import ScriptedModel
 
@@ -26,9 +26,12 @@ async def test_scripted_model_returns_responses_in_order() -> None:
             content="Complete the task.",
         ),
     )
+    request = ModelRequest(
+        conversation=messages,
+    )
 
-    assert await model.complete(messages) == first_response
-    assert await model.complete(messages) == second_response
+    assert await model.complete(request) == first_response
+    assert await model.complete(request) == second_response
 
 
 @pytest.mark.asyncio
@@ -45,8 +48,11 @@ async def test_scripted_model_records_received_messages() -> None:
             content="Complete the task.",
         ),
     )
+    request = ModelRequest(
+        conversation=messages,
+    )
 
-    await model.complete(messages)
+    await model.complete(request)
 
     assert model.calls == (messages,)
 
@@ -65,7 +71,7 @@ async def test_scripted_model_copies_messages_from_caller() -> None:
     )
     original_messages = [message]
 
-    await model.complete(original_messages)
+    await model.complete(ModelRequest(conversation=original_messages))
     original_messages.clear()
 
     assert model.calls == ((message,),)
@@ -81,7 +87,7 @@ async def test_scripted_model_reports_exhausted_responses() -> None:
         RuntimeError,
         match="scripted model has no responses remaining",
     ):
-        await model.complete(())
+        await model.complete(ModelRequest(conversation=()))
 
 
 @pytest.mark.asyncio
@@ -95,7 +101,7 @@ async def test_scripted_model_copies_responses_from_caller() -> None:
     )
     original_responses.clear()
 
-    assert await model.complete(()) == response
+    assert await model.complete(ModelRequest(conversation=())) == response
 
 
 def test_scripted_model_rejects_non_model_response() -> None:
@@ -155,7 +161,7 @@ async def test_scripted_model_scripts_tool_call_then_final_answer() -> None:
         ),
     )
 
-    first_result = await model.complete(first_history)
+    first_result = await model.complete(ModelRequest(conversation=first_history))
 
     assert first_result.tool_calls == (tool_call,)
 
@@ -170,7 +176,7 @@ async def test_scripted_model_scripts_tool_call_then_final_answer() -> None:
         ),
     )
 
-    second_result = await model.complete(second_history)
+    second_result = await model.complete(ModelRequest(conversation=second_history))
 
     assert second_result.content == "README.md has been read."
     assert second_result.tool_calls == ()
@@ -178,3 +184,25 @@ async def test_scripted_model_scripts_tool_call_then_final_answer() -> None:
         first_history,
         second_history,
     )
+
+
+@pytest.mark.asyncio
+async def test_scripted_model_records_received_request() -> None:
+    response = ModelResponse(
+        content="Done.",
+    )
+    model = ScriptedModel(
+        responses=[response],
+    )
+    request = ModelRequest(
+        conversation=(
+            Message(
+                role=MessageRole.USER,
+                content="Complete the task.",
+            ),
+        ),
+    )
+
+    await model.complete(request)
+
+    assert model.requests == (request,)

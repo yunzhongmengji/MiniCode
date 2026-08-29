@@ -81,7 +81,7 @@ call_id 用于关联调用和结果。
 
 ## 8. 当前限制
 
-- 尚未接入真实模型。
+- 已通过 `ModelRequest` 接入真实 Model Adapter；Query Loop 本身仍保持 Provider 无关。
 - 尚未实现真实工具、Registry 和 Dispatcher。
 - 工具调用仍然顺序执行。
 - 尚未实现 Policy、Approval 和 Sandbox。

@@ -5,6 +5,7 @@ description = "A local-first, auditable, and reproducible coding agent runtime."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "openai>=3.3.1,<4",
     "pydantic>=2.12,<3",
 ]
 

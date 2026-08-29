@@ -4,7 +4,7 @@ from collections import deque
 from collections.abc import Sequence
 
 from minicode.core.conversation import ConversationItem
-from minicode.core.model import ModelResponse
+from minicode.core.model import ModelRequest, ModelResponse
 
 
 class ScriptedModel:
@@ -25,19 +25,24 @@ class ScriptedModel:
                 raise TypeError("responses must contain only ModelResponse instances")
 
         self._responses: deque[ModelResponse] = deque(responses)
-        self._calls: list[tuple[ConversationItem, ...]] = []
+        self._requests: list[ModelRequest] = []
 
     @property
     def calls(self) -> tuple[tuple[ConversationItem, ...], ...]:
-        """Return immutable snapshots of received message histories."""
-        return tuple(self._calls)
+        """Return conversation histories from recorded model requests."""
+        return tuple(tuple(request.conversation) for request in self._requests)
+
+    @property
+    def requests(self) -> tuple[ModelRequest, ...]:
+        """Return the complete requests received by this model."""
+        return tuple(self._requests)
 
     async def complete(
         self,
-        messages: Sequence[ConversationItem],
+        request: ModelRequest,
     ) -> ModelResponse:
-        """Record the messages and return the next prepared response."""
-        self._calls.append(tuple(messages))
+        """Record the request and return the next prepared response."""
+        self._requests.append(request)
 
         if not self._responses:
             raise RuntimeError("scripted model has no responses remaining")

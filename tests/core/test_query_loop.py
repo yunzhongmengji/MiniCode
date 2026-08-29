@@ -5,7 +5,13 @@ from minicode.core.model import ModelResponse
 from minicode.core.query_loop import QueryLoop, StopReason
 from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.models.scripted import ScriptedModel
+from minicode.tools.schema import ToolArguments
 from minicode.tools.scripted import ScriptedToolRuntime
+from minicode.tools.spec import ToolSpec
+
+
+class ReadFileArguments(ToolArguments):
+    path: str
 
 
 @pytest.mark.asyncio
@@ -611,3 +617,106 @@ async def test_query_loop_does_not_partially_execute_tool_call_batch() -> None:
     assert result.message_history == initial_history
     assert model.calls == (initial_history,)
     assert tool_runtime.calls == ()
+
+
+@pytest.mark.asyncio
+async def test_query_loop_provides_tool_specs_to_model() -> None:
+    response = ModelResponse(
+        content="Task completed.",
+    )
+    model = ScriptedModel(
+        responses=[response],
+    )
+    tool_spec = ToolSpec(
+        name="read_file",
+        description="Read a UTF-8 text file.",
+        arguments_type=ReadFileArguments,
+    )
+    loop = QueryLoop(
+        model=model,
+        tool_specs=(tool_spec,),
+    )
+    conversation = (
+        Message(
+            role=MessageRole.USER,
+            content="Read README.md",
+        ),
+    )
+
+    await loop.run(conversation)
+
+    assert model.requests[0].conversation == conversation
+    assert model.requests[0].tool_specs == (tool_spec,)
+
+
+@pytest.mark.parametrize(
+    "tool_specs",
+    [
+        {},
+        "",
+        b"",
+    ],
+)
+def test_query_loop_rejects_invalid_tool_specs_container(
+    tool_specs: object,
+) -> None:
+    model = ScriptedModel(
+        responses=[],
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="tool_specs must be a sequence",
+    ):
+        QueryLoop(
+            model=model,
+            tool_specs=tool_specs,
+        )
+
+
+def test_query_loop_rejects_non_tool_spec_item() -> None:
+    model = ScriptedModel(
+        responses=[],
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="tool_specs must contain only ToolSpec instances",
+    ):
+        QueryLoop(
+            model=model,
+            tool_specs=["read_file"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_snapshots_tool_specs() -> None:
+    response = ModelResponse(
+        content="Task completed.",
+    )
+    model = ScriptedModel(
+        responses=[response],
+    )
+    tool_spec = ToolSpec(
+        name="read_file",
+        description="Read a UTF-8 text file.",
+        arguments_type=ReadFileArguments,
+    )
+    original_tool_specs = [tool_spec]
+
+    loop = QueryLoop(
+        model=model,
+        tool_specs=original_tool_specs,
+    )
+    original_tool_specs.clear()
+
+    conversation = (
+        Message(
+            role=MessageRole.USER,
+            content="Complete the task.",
+        ),
+    )
+
+    await loop.run(conversation)
+
+    assert model.requests[0].tool_specs == (tool_spec,)

@@ -115,4 +115,4 @@ Workspace 是应用层文件 API，只能约束经过它的代码。它不能阻
 
 ## 8. 下一步
 
-M4 将实现真实 Model Adapter，使稳定排序的 `ToolSpec` 能被转换为 Provider 工具定义，并把 Provider 返回的工具调用还原为 MiniCode 的 `ToolCall`。效率、Token 或 Prompt Cache 收益必须在后续 Benchmark 中测量后再陈述。
+M4 已实现真实 Model Adapter，使稳定排序的 `ToolSpec` 能被转换为 Provider 工具定义，并把 Provider 返回的工具调用还原为 MiniCode 的 `ToolCall`。效率、Token 或 Prompt Cache 收益仍必须在后续 Benchmark 中测量后再陈述。

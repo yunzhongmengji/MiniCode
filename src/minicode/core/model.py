@@ -5,7 +5,87 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from minicode.core.conversation import ConversationItem
-from minicode.core.tool_calls import ToolCall
+from minicode.core.messages import Message
+from minicode.core.tool_calls import ToolCall, ToolResult
+from minicode.tools.spec import ToolSpec
+
+
+class ModelError(RuntimeError):
+    """Base exception for failures at the model boundary."""
+
+
+class ModelProtocolError(ModelError):
+    """Raised when a provider returns an unusable response."""
+
+
+class ModelAuthenticationError(ModelError):
+    """Raised when a model provider rejects authentication."""
+
+
+class ModelRateLimitError(ModelError):
+    """Raised when a model provider rate-limits a request."""
+
+
+class ModelConnectionError(ModelError):
+    """Raised when a model provider cannot be reached."""
+
+
+class ModelQuotaExceededError(ModelError):
+    """Raised when a model provider quota is exhausted."""
+
+
+class ModelAccessDeniedError(ModelError):
+    """Raised when access to a model resource is denied."""
+
+
+class ModelServiceError(ModelError):
+    """Raised when a model provider rejects or fails a request."""
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRequest:
+    """A provider-neutral request sent to a model implementation."""
+
+    conversation: Sequence[ConversationItem]
+    tool_specs: Sequence[ToolSpec] = ()
+
+    def __post_init__(self) -> None:
+        """Validate fields and copy request inputs into immutable snapshots."""
+        if not isinstance(self.conversation, Sequence) or isinstance(
+            self.conversation,
+            (str, bytes),
+        ):
+            raise TypeError("conversation must be a sequence")
+
+        for item in self.conversation:
+            if not isinstance(
+                item,
+                (Message, ToolCall, ToolResult),
+            ):
+                raise TypeError(
+                    "conversation must contain only ConversationItem instances"
+                )
+
+        if not isinstance(self.tool_specs, Sequence) or isinstance(
+            self.tool_specs,
+            (str, bytes),
+        ):
+            raise TypeError("tool_specs must be a sequence")
+
+        for tool_spec in self.tool_specs:
+            if not isinstance(tool_spec, ToolSpec):
+                raise TypeError("tool_specs must contain only ToolSpec instances")
+
+        object.__setattr__(
+            self,
+            "conversation",
+            tuple(self.conversation),
+        )
+        object.__setattr__(
+            self,
+            "tool_specs",
+            tuple(self.tool_specs),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +127,7 @@ class Model(Protocol):
 
     async def complete(
         self,
-        messages: Sequence[ConversationItem],
+        request: ModelRequest,
     ) -> ModelResponse:
-        """Generate the next response from the conversation history."""
+        """Generate the next response from a normalized model request."""
         ...

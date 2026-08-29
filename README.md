@@ -11,7 +11,7 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - 中心化多 Agent 调度与最小权限
 - 可执行 Benchmark、故障注入和安全红队
 
-当前状态：M3 Tool Runtime 已完成，准备进入 M4 Model Adapter。
+当前状态：M4 Model Adapter 进行中；真实文本请求和 read-file 工具闭环已经通过，流式输出与运行指标待实现。
 
 ## 项目证据
 
@@ -22,6 +22,7 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - [威胁模型](docs/THREAT_MODEL.md)
 - [Query Loop 设计](docs/QUERY_LOOP.md)
 - [Tool Runtime 与 Workspace 设计](docs/TOOL_RUNTIME.md)
+- [Model Adapter 设计](docs/MODEL_ADAPTER.md)
 - [学习日志](docs/LEARNING_LOG.md)
 - [中文学习笔记](docs/learning/README.md)
 - [架构决策记录](docs/adr/)

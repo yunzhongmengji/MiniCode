@@ -86,6 +86,7 @@
 | 2026-08-22 | M2 学习门禁 | 通过 | 能解释循环数据流、停止状态、工具错误与异常边界；独立实现 MAX_TOOL_CALLS 终止条件、参数校验和整批拒绝测试；准备进入 M3 Tool Runtime |
 | 2026-08-23 | M3 Tool Runtime | 完成 | 实现严格 Pydantic ToolArguments、不可变 ToolSpec、Tool Protocol、拒绝重复名称的 Registry、统一 Dispatcher、Workspace 与受限 ReadFileTool；136 个测试、Ruff 与 mypy 门禁通过 |
 | 2026-08-23 | M3 学习门禁 | 通过 | 能解释 Tool/Spec/Registry/Dispatcher 分工、Protocol 替换、验证前置、异常转换、路径逃逸、符号链接、字节预算及 Workspace 与 OS Sandbox 的边界；准备进入 M4 Model Adapter |
+| 2026-08-29 | M4 非流式 Model Adapter | 完成 | 实现 Provider 无关 ModelRequest、OpenAI 兼容双向转换、DashScope 配置与组装、SDK 错误分类；离线测试覆盖普通消息、工具消息、协议错误和网络错误映射；真实文本请求与两轮 read-file 工具闭环通过 |
 
 ## 2026-08-22 / M2 / 最小 Query Loop 复盘
 

@@ -1,8 +1,10 @@
 """Core orchestration for MiniCode's model query loop."""
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 
 from minicode.core.conversation import ConversationItem
 from minicode.core.messages import Message, MessageRole
@@ -65,6 +67,7 @@ class QueryLoop:
         tool_runtime: ToolRuntime | None = None,
         max_tool_calls: int = 8,
         tool_specs: Sequence[ToolSpec] = (),
+        total_timeout_seconds: float | None = None,
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -81,6 +84,28 @@ class QueryLoop:
         if max_tool_calls <= 0:
             raise ValueError("max_tool_calls must be greater than zero")
 
+        if total_timeout_seconds is not None:
+            if isinstance(
+                total_timeout_seconds,
+                bool,
+            ) or not isinstance(
+                total_timeout_seconds,
+                (int, float),
+            ):
+                raise TypeError("total_timeout_seconds must be a number or None")
+
+            normalized_total_timeout_seconds = float(total_timeout_seconds)
+
+            if (
+                not isfinite(normalized_total_timeout_seconds)
+                or normalized_total_timeout_seconds <= 0
+            ):
+                raise ValueError(
+                    "total_timeout_seconds must be finite and greater than zero"
+                )
+        else:
+            normalized_total_timeout_seconds = None
+
         if not isinstance(tool_specs, Sequence) or isinstance(
             tool_specs,
             (str, bytes),
@@ -96,8 +121,17 @@ class QueryLoop:
         self._tool_runtime = tool_runtime
         self._max_tool_calls = max_tool_calls
         self._tool_specs = tuple(tool_specs)
+        self._total_timeout_seconds = normalized_total_timeout_seconds
 
     async def run(
+        self,
+        messages: Sequence[ConversationItem],
+    ) -> RunResult:
+        """Run the query loop within its total timeout."""
+        async with asyncio.timeout(self._total_timeout_seconds):
+            return await self._run(messages)
+
+    async def _run(
         self,
         messages: Sequence[ConversationItem],
     ) -> RunResult:

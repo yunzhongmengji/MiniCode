@@ -1,6 +1,6 @@
 """Model-facing contracts for MiniCode."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -40,6 +40,54 @@ class ModelAccessDeniedError(ModelError):
 
 class ModelServiceError(ModelError):
     """Raised when a model provider rejects or fails a request."""
+
+
+@dataclass(frozen=True, slots=True)
+class ModelTextDelta:
+    """A newly generated fragment of model text."""
+
+    text: str
+
+    def __post_init__(self) -> None:
+        """Validate the streamed text fragment."""
+        if not isinstance(self.text, str):
+            raise TypeError("text must be a string")
+
+        if self.text == "":
+            raise ValueError("text must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ModelUsage:
+    """Provider-neutral token usage for one model response."""
+
+    input_tokens: int
+    output_tokens: int
+
+    def __post_init__(self) -> None:
+        """Validate token counts."""
+        token_counts = (
+            (
+                "input_tokens",
+                self.input_tokens,
+            ),
+            (
+                "output_tokens",
+                self.output_tokens,
+            ),
+        )
+
+        for field_name, value in token_counts:
+            if type(value) is not int:
+                raise TypeError(f"{field_name} must be an integer")
+
+            if value < 0:
+                raise ValueError(f"{field_name} must not be negative")
+
+    @property
+    def total_tokens(self) -> int:
+        """Return the total number of consumed tokens."""
+        return self.input_tokens + self.output_tokens
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +142,7 @@ class ModelResponse:
 
     content: str
     tool_calls: Sequence[ToolCall] = ()
+    usage: ModelUsage | None = None
 
     def __post_init__(self) -> None:
         """Validate fields and copy tool calls into an immutable snapshot."""
@@ -115,11 +164,32 @@ class ModelResponse:
         if not self.content.strip() and not normalized_tool_calls:
             raise ValueError("response must contain content or tool calls")
 
+        if self.usage is not None and not isinstance(
+            self.usage,
+            ModelUsage,
+        ):
+            raise TypeError("usage must be a ModelUsage or None")
+
         object.__setattr__(
             self,
             "tool_calls",
             normalized_tool_calls,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ModelResponseDone:
+    """The completed response produced by a model stream."""
+
+    response: ModelResponse
+
+    def __post_init__(self) -> None:
+        """Validate the completed stream response."""
+        if not isinstance(self.response, ModelResponse):
+            raise TypeError("response must be a ModelResponse")
+
+
+type ModelStreamEvent = ModelTextDelta | ModelResponseDone
 
 
 class Model(Protocol):
@@ -130,4 +200,15 @@ class Model(Protocol):
         request: ModelRequest,
     ) -> ModelResponse:
         """Generate the next response from a normalized model request."""
+        ...
+
+
+class StreamingModel(Protocol):
+    """A model capable of producing incremental events."""
+
+    def stream(
+        self,
+        request: ModelRequest,
+    ) -> AsyncIterator[ModelStreamEvent]:
+        """Stream incremental events for one model request."""
         ...

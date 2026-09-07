@@ -22,6 +22,7 @@ from minicode.core.model import (
     ModelRequest,
     ModelResponse,
     ModelServiceError,
+    ModelUsage,
 )
 from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.models.openai_compatible import (
@@ -1020,3 +1021,37 @@ def test_openai_compatible_model_rejects_invalid_extra_body(
             model="qwen3.7-flash-2026-07-15",
             extra_body=extra_body,
         )
+
+
+def test_openai_completion_converts_usage() -> None:
+    completion = ChatCompletion.model_validate(
+        {
+            "id": "chatcmpl_test",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "index": 0,
+                    "logprobs": None,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Task completed.",
+                    },
+                }
+            ],
+            "created": 0,
+            "model": "qwen3.7-flash-2026-07-15",
+            "object": "chat.completion",
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 5,
+                "total_tokens": 17,
+            },
+        }
+    )
+
+    response = openai_completion_to_model_response(completion)
+
+    assert response.usage == ModelUsage(
+        input_tokens=12,
+        output_tokens=5,
+    )

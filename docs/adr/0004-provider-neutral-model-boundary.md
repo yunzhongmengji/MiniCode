@@ -2,6 +2,7 @@
 
 状态：Accepted
 日期：2026-08-29
+后续：[ADR-0005](0005-stream-events-observation-and-total-timeout.md) 在保留本 ADR 的 Provider 无关边界上，扩展了流式事件、运行观测、取消与 Query Loop 总时限。
 
 ## 背景
 

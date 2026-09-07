@@ -1,7 +1,12 @@
+import asyncio
+
 import pytest
 
 from minicode.core.messages import Message, MessageRole
-from minicode.core.model import ModelResponse
+from minicode.core.model import (
+    ModelRequest,
+    ModelResponse,
+)
 from minicode.core.query_loop import QueryLoop, StopReason
 from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.models.scripted import ScriptedModel
@@ -720,3 +725,170 @@ async def test_query_loop_snapshots_tool_specs() -> None:
     await loop.run(conversation)
 
     assert model.requests[0].tool_specs == (tool_spec,)
+
+
+@pytest.mark.asyncio
+async def test_query_loop_enforces_total_timeout() -> None:
+    class NeverCompletingModel:
+        async def complete(
+            self,
+            request: ModelRequest,
+        ) -> ModelResponse:
+            del request
+
+            await asyncio.Event().wait()
+
+            raise AssertionError("unreachable")
+
+    loop = QueryLoop(
+        model=NeverCompletingModel(),
+        total_timeout_seconds=0.01,
+    )
+
+    with pytest.raises(TimeoutError):
+        await loop.run(())
+
+
+@pytest.mark.parametrize(
+    "total_timeout_seconds",
+    [
+        True,
+        "1.0",
+        {},
+        [],
+    ],
+)
+def test_query_loop_rejects_non_numeric_total_timeout(
+    total_timeout_seconds: object,
+) -> None:
+    model = ScriptedModel(
+        responses=[],
+    )
+
+    with pytest.raises(
+        TypeError,
+        match=("total_timeout_seconds must be a number or None"),
+    ):
+        QueryLoop(
+            model=model,
+            total_timeout_seconds=total_timeout_seconds,  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    "total_timeout_seconds",
+    [
+        0,
+        -1,
+        float("inf"),
+        float("-inf"),
+        float("nan"),
+    ],
+)
+def test_query_loop_rejects_invalid_total_timeout(
+    total_timeout_seconds: float,
+) -> None:
+    model = ScriptedModel(
+        responses=[],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=("total_timeout_seconds must be finite and greater than zero"),
+    ):
+        QueryLoop(
+            model=model,
+            total_timeout_seconds=total_timeout_seconds,
+        )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_propagates_external_cancellation() -> None:
+    model_started = asyncio.Event()
+    model_cleaned_up = asyncio.Event()
+
+    class WaitingModel:
+        async def complete(
+            self,
+            request: ModelRequest,
+        ) -> ModelResponse:
+            del request
+            model_started.set()
+
+            try:
+                await asyncio.Event().wait()
+            finally:
+                model_cleaned_up.set()
+
+            raise AssertionError("unreachable")
+
+    loop = QueryLoop(
+        model=WaitingModel(),
+        total_timeout_seconds=10.0,
+    )
+
+    task = asyncio.create_task(loop.run(()))
+
+    await model_started.wait()
+
+    task.cancel()
+
+    with pytest.raises(
+        asyncio.CancelledError,
+    ):
+        await task
+
+    assert model_cleaned_up.is_set()
+
+
+@pytest.mark.asyncio
+async def test_query_loop_total_timeout_covers_tool_execution() -> None:
+    tool_started = asyncio.Event()
+
+    class NeverCompletingToolRuntime:
+        async def execute(
+            self,
+            tool_call: ToolCall,
+        ) -> ToolResult:
+            del tool_call
+            tool_started.set()
+
+            await asyncio.Event().wait()
+
+            raise AssertionError("unreachable")
+
+    tool_call = ToolCall(
+        call_id="call_001",
+        name="read_file",
+        arguments={
+            "path": "README.md",
+        },
+    )
+    model = ScriptedModel(
+        responses=[
+            ModelResponse(
+                content="I will read the file.",
+                tool_calls=(tool_call,),
+            ),
+        ],
+    )
+    loop = QueryLoop(
+        model=model,
+        tool_runtime=NeverCompletingToolRuntime(),
+        max_turns=2,
+        total_timeout_seconds=0.01,
+    )
+    initial_history = (
+        Message(
+            role=MessageRole.USER,
+            content="Read README.md.",
+        ),
+    )
+
+    with pytest.raises(TimeoutError):
+        await loop.run(
+            initial_history,
+        )
+
+    assert tool_started.is_set()
+    assert model.calls == (initial_history,)

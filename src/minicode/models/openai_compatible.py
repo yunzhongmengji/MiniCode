@@ -1,7 +1,13 @@
 """OpenAI-compatible model adapter and payload conversion."""
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Mapping,
+    Sequence,
+)
+from dataclasses import dataclass, field
 from typing import TypedDict
 
 from openai import (
@@ -15,6 +21,7 @@ from openai import (
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAssistantMessageParam,
+    ChatCompletionChunk,
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionMessageParam,
@@ -26,12 +33,17 @@ from minicode.core.model import (
     ModelAccessDeniedError,
     ModelAuthenticationError,
     ModelConnectionError,
+    ModelError,
     ModelProtocolError,
     ModelQuotaExceededError,
     ModelRateLimitError,
     ModelRequest,
     ModelResponse,
+    ModelResponseDone,
     ModelServiceError,
+    ModelStreamEvent,
+    ModelTextDelta,
+    ModelUsage,
 )
 from minicode.core.tool_calls import (
     JsonValue,
@@ -45,6 +57,45 @@ class _CompletionCreateOptions(TypedDict, total=False):
     """Optional keyword arguments for an SDK completion request."""
 
     extra_body: object
+
+
+@dataclass(slots=True)
+class _ToolCallAccumulator:
+    """Collect fragments for one streamed tool call."""
+
+    call_id: str | None = None
+    name: str | None = None
+    tool_type: str | None = None
+    argument_parts: list[str] = field(
+        default_factory=list,
+    )
+
+
+def _tool_call_from_json(
+    *,
+    call_id: str,
+    name: str,
+    arguments_json: str,
+) -> ToolCall:
+    """Build a validated MiniCode tool call from provider fields."""
+    try:
+        arguments = json.loads(arguments_json)
+    except json.JSONDecodeError as error:
+        raise ModelProtocolError(
+            "model returned invalid JSON tool arguments"
+        ) from error
+
+    if not isinstance(arguments, Mapping):
+        raise ModelProtocolError("model tool-call arguments must decode to an object")
+
+    try:
+        return ToolCall(
+            call_id=call_id,
+            name=name,
+            arguments=arguments,
+        )
+    except (TypeError, ValueError) as error:
+        raise ModelProtocolError("model returned invalid tool call") from error
 
 
 def tool_spec_to_openai_tool(
@@ -210,33 +261,148 @@ def openai_completion_to_model_response(
         if openai_tool_call.type != "function":
             raise ModelProtocolError("model returned unsupported tool-call type")
 
-        try:
-            arguments = json.loads(openai_tool_call.function.arguments)
-        except json.JSONDecodeError as error:
-            raise ModelProtocolError(
-                "model returned invalid JSON tool arguments"
-            ) from error
-
-        if not isinstance(arguments, Mapping):
-            raise ModelProtocolError(
-                "model tool-call arguments must decode to an object"
-            )
-
-        try:
-            tool_call = ToolCall(
+        tool_calls.append(
+            _tool_call_from_json(
                 call_id=openai_tool_call.id,
                 name=openai_tool_call.function.name,
-                arguments=arguments,
+                arguments_json=(openai_tool_call.function.arguments),
             )
-        except (TypeError, ValueError) as error:
-            raise ModelProtocolError("model returned invalid tool call") from error
+        )
 
-        tool_calls.append(tool_call)
+    usage = None
+
+    if completion.usage is not None:
+        usage = ModelUsage(
+            input_tokens=(completion.usage.prompt_tokens),
+            output_tokens=(completion.usage.completion_tokens),
+        )
 
     return ModelResponse(
         content=content,
         tool_calls=tool_calls,
+        usage=usage,
     )
+
+
+async def openai_completion_stream_to_events(
+    chunks: AsyncIterable[ChatCompletionChunk],
+) -> AsyncIterator[ModelStreamEvent]:
+    """Convert OpenAI completion chunks into MiniCode stream events."""
+    content_parts: list[str] = []
+    finish_reason: str | None = None
+    usage: ModelUsage | None = None
+    tool_call_accumulators: dict[
+        int,
+        _ToolCallAccumulator,
+    ] = {}
+
+    async for chunk in chunks:
+        if chunk.usage is not None:
+            usage = ModelUsage(
+                input_tokens=(chunk.usage.prompt_tokens),
+                output_tokens=(chunk.usage.completion_tokens),
+            )
+
+        if not chunk.choices:
+            continue
+
+        choice = chunk.choices[0]
+
+        if choice.finish_reason is not None:
+            finish_reason = choice.finish_reason
+
+        for tool_call_delta in choice.delta.tool_calls or []:
+            accumulator = tool_call_accumulators.get(tool_call_delta.index)
+
+            if accumulator is None:
+                accumulator = _ToolCallAccumulator()
+                tool_call_accumulators[tool_call_delta.index] = accumulator
+
+            if tool_call_delta.id is not None:
+                accumulator.call_id = tool_call_delta.id
+
+            if tool_call_delta.type is not None:
+                accumulator.tool_type = tool_call_delta.type
+
+            if tool_call_delta.function is not None:
+                if tool_call_delta.function.name is not None:
+                    accumulator.name = tool_call_delta.function.name
+
+                if tool_call_delta.function.arguments is not None:
+                    accumulator.argument_parts.append(
+                        tool_call_delta.function.arguments
+                    )
+
+        content = choice.delta.content
+
+        if content is None or content == "":
+            continue
+
+        content_parts.append(content)
+
+        yield ModelTextDelta(
+            text=content,
+        )
+
+    if finish_reason is None:
+        raise ModelProtocolError("model stream ended without a finish reason")
+
+    if finish_reason not in (
+        "stop",
+        "tool_calls",
+    ):
+        raise ModelProtocolError(f"model stream did not complete: {finish_reason}")
+
+    tool_calls: list[ToolCall] = []
+
+    for index in sorted(tool_call_accumulators):
+        accumulator = tool_call_accumulators[index]
+
+        if accumulator.tool_type != "function":
+            raise ModelProtocolError("model returned unsupported tool-call type")
+
+        if accumulator.call_id is None or accumulator.name is None:
+            raise ModelProtocolError("model returned invalid tool call")
+
+        tool_calls.append(
+            _tool_call_from_json(
+                call_id=accumulator.call_id,
+                name=accumulator.name,
+                arguments_json="".join(accumulator.argument_parts),
+            )
+        )
+
+    complete_content = "".join(content_parts)
+
+    yield ModelResponseDone(
+        response=ModelResponse(
+            content=complete_content,
+            tool_calls=tool_calls,
+            usage=usage,
+        ),
+    )
+
+
+def _translate_openai_error(
+    error: APIConnectionError | APIStatusError,
+) -> ModelError:
+    """Translate an OpenAI SDK error into a provider-neutral model error."""
+    if isinstance(error, AuthenticationError):
+        return ModelAuthenticationError("model authentication failed")
+
+    if isinstance(error, PermissionDeniedError):
+        if error.code == "AllocationQuota.FreeTierOnly":
+            return ModelQuotaExceededError("model free quota exhausted")
+
+        return ModelAccessDeniedError("model access denied")
+
+    if isinstance(error, RateLimitError):
+        return ModelRateLimitError("model rate limit exceeded")
+
+    if isinstance(error, APIConnectionError):
+        return ModelConnectionError("model service connection failed")
+
+    return ModelServiceError("model service request failed")
 
 
 class OpenAICompatibleModel:
@@ -292,18 +458,56 @@ class OpenAICompatibleModel:
                     messages=messages,
                     **create_options,
                 )
-        except AuthenticationError as error:
-            raise ModelAuthenticationError("model authentication failed") from error
-        except PermissionDeniedError as error:
-            if error.code == "AllocationQuota.FreeTierOnly":
-                raise ModelQuotaExceededError("model free quota exhausted") from error
-
-            raise ModelAccessDeniedError("model access denied") from error
-        except RateLimitError as error:
-            raise ModelRateLimitError("model rate limit exceeded") from error
-        except APIConnectionError as error:
-            raise ModelConnectionError("model service connection failed") from error
-        except APIStatusError as error:
-            raise ModelServiceError("model service request failed") from error
+        except (
+            APIConnectionError,
+            APIStatusError,
+        ) as error:
+            raise _translate_openai_error(error) from error
 
         return openai_completion_to_model_response(completion)
+
+    async def stream(
+        self,
+        request: ModelRequest,
+    ) -> AsyncIterator[ModelStreamEvent]:
+        """Stream a normalized MiniCode model request."""
+        messages = conversation_to_openai_messages(request.conversation)
+        tools = [
+            tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
+        ]
+        create_options: _CompletionCreateOptions = {}
+
+        if self._extra_body is not None:
+            create_options["extra_body"] = self._extra_body
+
+        try:
+            if tools:
+                chunks = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    tools=tools,
+                    stream=True,
+                    stream_options={
+                        "include_usage": True,
+                    },
+                    **create_options,
+                )
+            else:
+                chunks = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    stream=True,
+                    stream_options={
+                        "include_usage": True,
+                    },
+                    **create_options,
+                )
+
+            async for event in openai_completion_stream_to_events(chunks):
+                yield event
+
+        except (
+            APIConnectionError,
+            APIStatusError,
+        ) as error:
+            raise _translate_openai_error(error) from error

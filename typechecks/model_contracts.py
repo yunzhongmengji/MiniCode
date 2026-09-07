@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 from minicode.core.conversation import ConversationItem
 from minicode.core.model import Model, ModelRequest, ModelResponse
+from minicode.core.model_metrics import RecordingModel
 from minicode.models.openai_compatible import (
     OpenAICompatibleModel,
 )
@@ -41,4 +42,13 @@ def build_openai_compatible_model_as_protocol(
     return OpenAICompatibleModel(
         client=client,
         model="qwen3.7-flash-2026-07-15",
+    )
+
+
+def build_recording_model_as_protocol(
+    model: Model,
+) -> Model:
+    """Require RecordingModel to satisfy the Model protocol."""
+    return RecordingModel(
+        model=model,
     )

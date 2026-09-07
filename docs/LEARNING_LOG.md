@@ -87,6 +87,8 @@
 | 2026-08-23 | M3 Tool Runtime | 完成 | 实现严格 Pydantic ToolArguments、不可变 ToolSpec、Tool Protocol、拒绝重复名称的 Registry、统一 Dispatcher、Workspace 与受限 ReadFileTool；136 个测试、Ruff 与 mypy 门禁通过 |
 | 2026-08-23 | M3 学习门禁 | 通过 | 能解释 Tool/Spec/Registry/Dispatcher 分工、Protocol 替换、验证前置、异常转换、路径逃逸、符号链接、字节预算及 Workspace 与 OS Sandbox 的边界；准备进入 M4 Model Adapter |
 | 2026-08-29 | M4 非流式 Model Adapter | 完成 | 实现 Provider 无关 ModelRequest、OpenAI 兼容双向转换、DashScope 配置与组装、SDK 错误分类；离线测试覆盖普通消息、工具消息、协议错误和网络错误映射；真实文本请求与两轮 read-file 工具闭环通过 |
+| 2026-09-04 | M4 Model Adapter 学习门禁 | 通过 | 能讲回 ModelRequest 到 ToolCall/ToolResult 再到下一轮的数据流；能解释流式 stop 与整个流结束的区别、usage chunk、超时内部取消与对外 TimeoutError，以及无效工具 JSON 的协议错误链 |
+| 2026-09-07 | M5 Safety Coding Tools | 通过 | 实现 search/edit/test、Policy 与 Approval；能解释执行前短路、路径与参数注入、精确替换、进程超时清理及分层错误翻译；362 个测试和静态门禁通过 |
 
 ## 2026-08-22 / M2 / 最小 Query Loop 复盘
 
@@ -109,4 +111,29 @@
 - 当前测试证据：136 个 pytest 用例，Ruff、格式检查、mypy 和 git diff 检查全部通过。
 - 仍然模糊或待复习：应用层路径检查的 TOCTOU 限制；真实 Provider 工具格式适配；Token 预算与字节预算的换算关系。
 - 下一次复习日期：2026-08-30。
+- 是否通过学习门禁：通过。
+
+## 2026-09-04 / M4 / Model Adapter 复盘
+
+- 我能画出的数据流：QueryLoop 将历史与 ToolSpec 组成 ModelRequest → OpenAICompatibleModel 转换为 Provider 请求 → Provider 返回文本或工具调用 → 适配器转为 ModelResponse/ToolCall → ToolRuntime 生成 ToolResult 并写回历史 → 下一轮模型调用。
+- 关键设计取舍：核心使用 Provider 无关数据类型，差异留在适配器；流式过程输出 ModelTextDelta，流完全结束后才输出含 usage 的 ModelResponseDone；RecordingModel 只观察和记录，不改写请求、响应或异常。
+- 失败模式：模型返回无效工具 JSON、工具参数不是对象、流缺少 finish reason、流因 length 截断、SDK 认证/限流/连接/服务错误、总超时与外部取消。
+- 测试证据：使用 MagicMock/AsyncMock 验证 SDK 调用参数，用人工 chunk 验证文本、工具参数分片、usage 和结束原因，用故障注入验证错误翻译，用 Event 与 create_task 验证取消和清理。
+- 变式练习结果：将 QueryLoop 总超时同时覆盖模型调用、多轮循环和工具执行，并验证 RecordingModel 在模型调用被取消时记录 CANCELLED。
+- 当前测试证据：266 个 pytest 用例，Ruff、格式检查、mypy 和 git diff 检查全部通过。
+- 需要回补的知识：RecordingModel 尚未观测 stream 调用；协作式取消无法中断不让出控制权的同步阻塞代码；需要在一周后复习不看代码讲回。
+- 下一次复习日期：2026-09-11。
+- 是否通过学习门禁：通过。
+
+## 2026-09-07 / M5 / Safety Coding Tools 复盘
+
+- 我能画出的数据流：模型产生 ToolCall → QueryLoop 调用 ToolDispatcher → Registry 查找 → Schema 验证 → Policy 决策 → 必要时 Approval → Tool 执行 → Dispatcher 生成关联 call_id 的 ToolResult → 下一轮模型。
+- 关键设计取舍：所有工具在 Dispatcher 中集中实施策略并默认拒绝；编辑只接受唯一精确匹配而不猜测目标；pytest 使用固定 argv 和无 shell ProcessRunner，而不开放任意命令字符串。
+- 安全边界：Workspace 规范化 `..` 和符号链接后检查最终路径；搜索限制文件数、单文件大小和结果数；编辑检查源文件及完整更新结果大小；测试进程有总时限并在超时后清理。
+- 失败模式：非法参数绕过审批、路径或符号链接逃逸、pytest 选项注入、多匹配误编辑、替换失败破坏原文件、测试进程超时后继续运行、底层异常直接泄漏到模型。
+- 测试方法：参数化测试覆盖成组的类型和值边界；tmp_path 构造文件树与符号链接；RecordingProcessRunner 证明命令和“拒绝时零执行”；真实子进程测试验证组件连接；故障注入验证替换失败和超时清理。
+- 变式练习结果：能够预测非法 `--rootdir=/tmp` 在参数验证处提前返回，不进入 Policy、Approval 或 ProcessRunner；能够解释 Approval 拒绝时 `runner.calls == 0` 的证据含义。
+- 当前测试证据：362 个 pytest 用例，Ruff、格式检查、mypy 和 `git diff --check` 全部通过。
+- 已知限制：Workspace 检查存在 TOCTOU 窗口；pytest 子进程仍继承环境且输出未限长；当前没有 OS Sandbox、进程组清理或持久审批事件。
+- 下一次复习日期：2026-09-14。
 - 是否通过学习门禁：通过。

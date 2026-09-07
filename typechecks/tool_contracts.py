@@ -1,5 +1,6 @@
 """Static compatibility checks for MiniCode tool contracts."""
 
+from minicode.core.tool_policy import ConfiguredToolPolicy
 from minicode.core.tool_runtime import ToolRuntime
 from minicode.tools.base import Tool
 from minicode.tools.dispatcher import ToolDispatcher
@@ -51,4 +52,7 @@ def build_tool_dispatcher_as_runtime_protocol() -> ToolRuntime:
     """Require ToolDispatcher to satisfy the ToolRuntime protocol."""
     return ToolDispatcher(
         registry=ToolRegistry(),
+        policy=ConfiguredToolPolicy(
+            decisions={},
+        ),
     )

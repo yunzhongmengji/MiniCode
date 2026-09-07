@@ -1,5 +1,8 @@
 """Filesystem boundary for files managed by MiniCode."""
 
+import os
+import stat
+import tempfile
 from pathlib import Path
 
 
@@ -18,6 +21,17 @@ class WorkspaceReadLimitError(OSError):
         super().__init__(f"file exceeds {max_bytes}-byte read limit")
 
 
+class WorkspaceFileLimitError(OSError):
+    """Raised when a directory contains too many searchable files."""
+
+    def __init__(
+        self,
+        max_files: int,
+    ) -> None:
+        self.max_files = max_files
+        super().__init__(f"search exceeds {max_files}-file limit")
+
+
 class Workspace:
     """Provide filesystem operations rooted at one directory."""
 
@@ -31,6 +45,18 @@ class Workspace:
             raise NotADirectoryError("workspace root must be a directory")
 
         self._root = resolved_root
+
+    @property
+    def root(self) -> Path:
+        """Return the resolved workspace root."""
+        return self._root
+
+    def resolve_path(
+        self,
+        relative_path: str,
+    ) -> Path:
+        """Resolve a path through the workspace boundary."""
+        return self._resolve(relative_path)
 
     def read_text(
         self,
@@ -63,6 +89,92 @@ class Workspace:
             raise WorkspaceReadLimitError(max_bytes)
 
         return content.decode("utf-8")
+
+    def write_text(
+        self,
+        relative_path: str,
+        content: str,
+    ) -> None:
+        """Atomically write UTF-8 text to an existing workspace file."""
+        if not isinstance(
+            content,
+            str,
+        ):
+            raise TypeError("content must be a string")
+
+        file_path = self._resolve(relative_path)
+
+        if not file_path.exists():
+            raise FileNotFoundError(f"path does not exist: {relative_path}")
+
+        if not file_path.is_file():
+            raise IsADirectoryError(f"path is not a file: {relative_path}")
+
+        file_mode = stat.S_IMODE(file_path.stat().st_mode)
+
+        with tempfile.TemporaryDirectory(
+            dir=file_path.parent,
+            prefix=f".{file_path.name}.",
+        ) as temporary_directory:
+            temporary_path = Path(temporary_directory) / file_path.name
+
+            temporary_path.write_text(
+                content,
+                encoding="utf-8",
+            )
+
+            os.chmod(
+                temporary_path,
+                file_mode,
+            )
+
+            os.replace(
+                temporary_path,
+                file_path,
+            )
+
+    def list_files(
+        self,
+        relative_path: str,
+        *,
+        max_files: int,
+    ) -> tuple[str, ...]:
+        """List a bounded number of regular workspace files."""
+        if isinstance(
+            max_files,
+            bool,
+        ) or not isinstance(
+            max_files,
+            int,
+        ):
+            raise TypeError("max_files must be an integer")
+
+        if max_files <= 0:
+            raise ValueError("max_files must be greater than zero")
+
+        target_path = self._resolve(relative_path)
+
+        if target_path.is_file():
+            candidate_paths: tuple[Path, ...] = (target_path,)
+        elif target_path.is_dir():
+            collected_paths: list[Path] = []
+
+            for path in target_path.rglob("*"):
+                if not path.is_file():
+                    continue
+
+                if len(collected_paths) >= max_files:
+                    raise WorkspaceFileLimitError(max_files)
+
+                collected_paths.append(path)
+
+            candidate_paths = tuple(collected_paths)
+        else:
+            raise FileNotFoundError(f"path does not exist: {relative_path}")
+
+        return tuple(
+            sorted(path.relative_to(self._root).as_posix() for path in candidate_paths)
+        )
 
     def _resolve(
         self,

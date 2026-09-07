@@ -1,6 +1,6 @@
 # MiniCode Tool Runtime
 
-本文记录 M3 的工具协议、注册、分发、参数验证、错误分类和 Workspace 文件边界。目标是让 Query Loop 能在不依赖具体工具实现的情况下，执行可测试、可替换且受约束的工具调用。
+本文记录 M3 与 M5 的工具协议、注册、分发、参数验证、Policy、Approval、错误分类和 Workspace 文件边界。目标是让 Query Loop 能在不依赖具体工具实现的情况下，执行可测试、可替换且受约束的工具调用。
 
 ## 1. 完整数据流
 
@@ -16,6 +16,11 @@ ModelResponse.tool_calls
        ToolSpec
           ↓ arguments_type.model_validate(...)
    validated ToolArguments
+          ↓
+       ToolPolicy
+     ↙ DENY  ↓ ASK  ↘ ALLOW
+  error   ToolApprover   execute
+              ↓ approved
           ↓ Tool.execute(...)
        text output
           ↓ Dispatcher 关联 call_id
@@ -34,9 +39,15 @@ QueryLoop 只依赖 `ToolRuntime.execute(ToolCall) -> ToolResult`。测试时使
 | `ToolSpec` | 保存工具名、模型可读描述和参数模型类型 | Provider 特定序列化和业务执行 |
 | `Tool` Protocol | 约束 `spec` 属性与异步 `execute()` 方法 | 保存全局工具集合 |
 | `ToolRegistry` | 按名称保存工具、拒绝重复名称、稳定暴露 Spec 快照 | 参数验证和错误包装 |
-| `ToolDispatcher` | 查找、验证、执行并关联 `call_id` 生成 `ToolResult` | 文件路径安全和具体业务逻辑 |
+| `ToolDispatcher` | 查找、验证、实施 Policy/Approval、执行并关联 `call_id` 生成 `ToolResult` | 文件路径安全和具体业务逻辑 |
+| `ToolPolicy` | 对一个候选 ToolCall 返回 Allow、Ask 或 Deny 决策 | 执行工具或向用户展示 UI |
+| `ToolApprover` | 异步询问一个精确 ToolCall 是否获准 | 决定默认策略或直接执行工具 |
 | `Workspace` | 集中处理工作区文件路径、UTF-8 读取与 byte 上限 | OS 级进程隔离 |
 | `ReadFileTool` | 声明 read_file Schema，通过 Workspace 读取文本并转换预期错误 | 直接拼接或信任模型路径 |
+| `SearchTextTool` | 在受限文件集合中进行 literal search，并限制结果数量 | 正则表达式、索引或工作区外搜索 |
+| `EditFileTool` | 唯一精确替换、结果大小检查和受控写入 | 猜测多个匹配中的修改目标 |
+| `RunTestsTool` | 验证测试路径、构造固定 pytest argv 并解释进程结果 | 任意命令或 Shell 执行 |
+| `ProcessRunner` | 启动无 shell 子进程、收集结果并负责超时清理 | 决定允许运行什么命令 |
 
 ## 3. 参数 Schema 与模型工具定义
 
@@ -103,16 +114,31 @@ Workspace 是应用层文件 API，只能约束经过它的代码。它不能阻
 
 因此 Workspace 是纵深防御的一层，不是最终安全边界。后续仍需要 Policy、Approval、受控 Executor 与 OS Sandbox。
 
-## 7. 当前测试证据
+## 7. M5 执行前安全顺序
+
+Dispatcher 固定按以下顺序处理调用：
+
+1. Registry 查找工具。
+2. 使用工具的 Pydantic Schema 严格验证参数。
+3. Policy 返回 Allow、Ask 或 Deny。
+4. Ask 决策通过 Approver 获取布尔结果。
+5. 只有全部前置条件成功后才调用 `Tool.execute()`。
+
+非法参数会直接返回错误 ToolResult，不会进入 Policy 或打扰用户审批。Deny、缺少 Approver 或审批拒绝也不会调用具体工具，因此文件写入和子进程启动都位于最后一道允许边界之后。
+
+## 8. 当前测试证据
 
 - Schema：合法输入、未知字段、严格类型、冻结和 JSON Schema。
 - ToolSpec：元数据、运行时不变量和不可变性。
 - Registry：查询、未知名称、重复名称和稳定 Spec 顺序。
-- Dispatcher：未知工具、参数失败、成功执行、预期执行失败和 QueryLoop 集成。
-- Workspace：正常读取、路径穿越、绝对路径、符号链接、根目录类型和 byte 上限。
+- Dispatcher：未知工具、参数失败、Policy 默认拒绝、Ask 审批、非法策略/审批返回值、成功执行、预期执行失败和 QueryLoop 集成。
+- Workspace：正常读取、路径穿越、绝对路径、符号链接、根目录类型、byte/file 上限和原子替换失败时保留原文件。
 - ReadFileTool：成功读取、异常转换、字段描述、空路径、权限分类和限制配置。
-- M3 完成时全项目证据：136 个 pytest 用例，Ruff、格式检查、mypy 与 `git diff --check` 全部通过。
+- SearchTextTool：文件和目录搜索、literal 语义、稳定顺序、无匹配、结果/文件限制及路径错误转换。
+- EditFileTool：唯一精确替换、源文件与结果大小限制、文件错误转换及审批前禁止写入。
+- RunTestsTool/ProcessRunner：固定 argv、参数注入拒绝、真实 pytest 子进程、失败输出、超时终止清理及审批前禁止启动。
+- M5 完成时全项目证据：362 个 pytest 用例，Ruff、格式检查、mypy 与 `git diff --check` 全部通过。
 
-## 8. 下一步
+## 9. 下一步
 
-M4 已实现真实 Model Adapter，使稳定排序的 `ToolSpec` 能被转换为 Provider 工具定义，并把 Provider 返回的工具调用还原为 MiniCode 的 `ToolCall`。效率、Token 或 Prompt Cache 收益仍必须在后续 Benchmark 中测量后再陈述。
+M6 将引入 Event Ledger，把 ToolCall、PolicyDecision、Approval、ToolResult 和最终停止状态记录为可审计事件。当前 Policy 与 Approval 已经控制执行，但尚无持久、可回放的决策证据。

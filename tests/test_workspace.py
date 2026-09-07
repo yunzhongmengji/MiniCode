@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -213,3 +214,46 @@ def test_workspace_rejects_non_positive_byte_limit(
             "file.txt",
             max_bytes=max_bytes,
         )
+
+
+def test_workspace_write_text_preserves_original_when_replace_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    file_path = tmp_path / "example.txt"
+    file_path.write_text(
+        "original content",
+        encoding="utf-8",
+    )
+    workspace = Workspace(
+        root=tmp_path,
+    )
+
+    def fail_replace(
+        source: str | bytes | os.PathLike[str],
+        destination: str | bytes | os.PathLike[str],
+    ) -> None:
+        del source, destination
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(
+        os,
+        "replace",
+        fail_replace,
+    )
+
+    with pytest.raises(
+        OSError,
+        match="simulated replace failure",
+    ):
+        workspace.write_text(
+            "example.txt",
+            "updated content",
+        )
+
+    assert (
+        file_path.read_text(
+            encoding="utf-8",
+        )
+        == "original content"
+    )

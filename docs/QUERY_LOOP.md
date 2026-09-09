@@ -1,10 +1,10 @@
 # MiniCode Query Loop
 
-状态：M2 基础循环已实现；M3 接入 Tool Runtime，M4 接入真实 Model Adapter 和总时限
+状态：M2 基础循环已实现；M3 接入 Tool Runtime，M4 接入真实 Model Adapter 和总时限，M6 接入 Event Ledger 与 Checkpoint 恢复
 
 ## 1. 目标
 
-Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文本或 ToolCall，不直接执行工具；实际执行被委托给 ToolRuntime。Query Loop 同时管理模型轮次、工具数量和整次运行的总时限。M5 的真实 ToolDispatcher 已在 ToolRuntime 边界内实施 Policy 与 Approval；OS Sandbox 仍属于后续里程碑。
+Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文本或 ToolCall，不直接执行工具；实际执行被委托给 ToolRuntime。Query Loop 同时管理模型轮次、工具数量、整次运行的总时限、运行事件和可恢复 checkpoint。M5 的真实 ToolDispatcher 已在 ToolRuntime 边界内实施 Policy 与 Approval；M6 的 Event Ledger 提供审计但不替代 OS Sandbox。
 
 ## 2. 当前组件
 
@@ -28,16 +28,24 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
   - 无真实副作用的确定性测试替身，记录 ToolCall，并按顺序返回预设 ToolResult。
 - RecordingModel
   - 可选模型包装器，按每次 `complete()` 记录延迟、Token、错误分类和取消，不改变 Query Loop 接口。
+- EventLedger
+  - 接收 QueryLoop 与 Dispatcher 产生的结构化事件，使模型、工具和运行结果共享一个连续顺序。
+- CheckpointStore
+  - 在每个 ToolResult 加入历史后保存可恢复状态；QueryLoop 可从最新状态补完 pending 工具。
+- RunReplay
+  - 只读解释 LedgerEvent，生成运行摘要，不重新执行模型或工具。
 
 ## 3. 一次运行的数据流
 
-1. `run()` 进入 `asyncio.timeout(total_timeout_seconds)` 管理的整次运行边界；`None` 表示不设截止时间。
+1. `run()` 记录 RUN_STARTED，再进入 `asyncio.timeout(total_timeout_seconds)` 管理的整次运行边界；`None` 表示不设截止时间。
 2. Query Loop 从当前历史和 `tool_specs` 创建不可变 `ModelRequest`，再调用 `Model.complete()`。
 3. 模型返回不含 `ToolCall` 的文本时，Query Loop 返回 `StopReason.COMPLETED` 的 `RunResult`。
 4. 模型返回 `ToolCall` 时，Query Loop 依次检查是否配置 ToolRuntime、是否到达模型轮次上限，以及整批调用是否超过工具预算。
-5. 检查通过后，Query Loop 先按顺序写入整批 `ToolCall`，再调用 ToolRuntime 并写入对应 `ToolResult`。
+5. 检查通过后，Query Loop 先按顺序写入整批 `ToolCall`，再调用 ToolRuntime 并写入对应 `ToolResult`；每个结果写入后立即保存 checkpoint。
 6. 更新后的历史进入下一轮 `ModelRequest`，直到完成、预算停止、总超时或异常中断。
-7. 正常停止时返回 `RunResult`，最后一次模型响应保存在 `RunResult.response` 中；超时或异常中断时不构造伪造的最终响应。
+7. 正常停止时记录 RUN_FINISHED 并返回 `RunResult`；超时、取消或异常中断时先记录对应 outcome，再保留原始控制流，不构造伪造的最终响应。
+
+`resume(checkpoint)` 使用同一运行边界，但从 checkpoint 中保存的回合、工具计数和历史继续。它只执行没有匹配 ToolResult 的 pending ToolCall，再进入下一模型回合。
 
 ## 4. 停止原因
 
@@ -85,6 +93,8 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
   - `task.cancel()` 产生的 `CancelledError` 继续向外传播；取消不会被误转换为总超时，`finally` 仍可用于资源清理。
 - `RecordingModel`
   - 它可以观察并记录模型错误或取消，但记录后仍立即重新抛出，不改变 Query Loop 的错误语义。
+- `EventLedger`
+  - QueryLoop 在成功、失败、取消和超时路径记录结构化事件，但记录不会把异常转换成成功结果，也不会吞掉取消。
 
 ## 8. 当前限制
 
@@ -93,4 +103,5 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
 - 工具调用仍然顺序执行。
 - Query Loop 当前使用 `Model.complete()`；Model Adapter 虽已支持流式事件，但尚未接入 Query Loop 的实时消费路径或 CLI/UI。
 - `asyncio.timeout()` 是协作式取消边界；如果某段同步代码长时间不交还事件循环，超时不能在其执行中途强制中断它。
-- 尚未实现 Policy/Approval 的持久事件记录和 OS Sandbox；应用层路径与 argv 规则不能提供宿主机级隔离。
+- M6 已提供内存 Event、Artifact、Checkpoint 和 Replay；尚无跨进程持久后端、事件状态机验证或崩溃时外部副作用的事务保证。
+- Event Ledger 只提供观察和恢复证据；应用层路径与 argv 规则仍不能提供宿主机级隔离。

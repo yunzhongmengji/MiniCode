@@ -101,10 +101,10 @@ RunTestsTool 捕获该 TimeoutError，将其翻译为包含限制时间的 ToolE
 - pytest 子进程继承当前环境，尚未建立环境变量白名单。
 - stdout/stderr 由 `communicate()` 全量保存，尚未设置输出 byte 上限。
 - 超时只直接终止 pytest 进程，尚未保证其所有后代进程同时退出。
-- Policy 当前按工具名配置，Approval 尚无持久审计、一次性令牌或过期机制。
+- Policy 当前按工具名配置；Approval 已记录内存事件，但尚无持久审计、一次性令牌或过期机制。
 - 没有 OS Sandbox，当前实现不允许任意 Shell，也不应被描述为宿主机隔离。
 
-这些限制将在 M6 Event Ledger 和 M12 红队与加固阶段继续处理。
+这些限制将在后续持久事件后端和 M12 红队与加固阶段继续处理。
 
 ## 8. 测试证据
 

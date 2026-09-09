@@ -82,14 +82,15 @@
 
 ## 5. 当前进度与下一步
 
-M5 Safety Coding Tools 完成记录：
+M6 Event Ledger 工程完成记录：
 
-1. 已完成：实现 Provider 无关的 Allow/Ask/Deny Policy、默认拒绝规则和异步 Approval 边界。
-2. 已完成：Dispatcher 按“查找、严格参数验证、策略、审批、执行”的固定顺序处理 ToolCall，并保证失败时在副作用前短路。
-3. 已完成：实现有文件数、单文件字节数和结果数限制的稳定顺序 literal search。
-4. 已完成：实现只允许唯一旧文本的精确编辑、更新后文件大小检查和同目录临时文件原子替换。
-5. 已完成：使用固定 argv 和无 shell 子进程运行 pytest，限制目标路径并在超时时终止和回收子进程。
-6. 已完成：覆盖父级跳转、外部符号链接、pytest 参数注入、审批拒绝、进程超时和底层异常翻译。
-7. 已完成：通过 M5 数据流、安全边界、错误分层和执行前短路的学习门禁复盘；全项目 362 个测试及静态门禁通过。
+1. 已完成：定义 Provider 无关的 LedgerEvent、稳定 EventKind、连续 sequence 和递归不可变 JSON payload。
+2. 已完成：QueryLoop 与 ToolDispatcher 共享 EventLedger，记录运行、模型、策略、审批、工具、checkpoint 和最终状态。
+3. 已完成：使用内容寻址 ArtifactStore 保存成功及预期失败的工具输出，事件只携带引用元数据。
+4. 已完成：在每个 ToolResult 加入历史后保存 RunCheckpoint，并验证 ToolCall/ToolResult 关联和已用预算一致性。
+5. 已完成：QueryLoop.resume() 只补执行 pending 工具，延续原有回合与工具预算，并与普通运行共享超时和结束事件边界。
+6. 已完成：RunReplay 验证单 run、连续 sequence 和起始边界，从完整或未完成事件流生成只读摘要。
+7. 已完成：用真实 ReadFileTool 连接 Dispatcher、Artifact、Checkpoint、Event Ledger 和 Replay；独立完成失败工具调用回放变式并修复 payload 筛选、顺序和类型收窄问题。
+8. 已完成：通过 M6 数据流、存储边界、恢复语义、崩溃窗口和错误观察的学习门禁；全项目 405 个测试以及 Ruff、mypy、格式和 diff 门禁通过。
 
-下一阶段是 M6 Event Ledger：为模型、策略、审批、工具和最终停止状态定义稳定事件，使一次任务可以被审计和回放。
+下一阶段是 M7 Skill System：定义 Skill Manifest 与 Catalog，建立可评测的候选召回、精排和按需加载流程。

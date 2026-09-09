@@ -1,5 +1,16 @@
+import asyncio
+from hashlib import sha256
+
 import pytest
 
+from minicode.core.artifacts import (
+    InMemoryArtifactStore,
+)
+from minicode.core.events import (
+    EventKind,
+    InMemoryEventLedger,
+    LedgerEvent,
+)
 from minicode.core.messages import Message, MessageRole
 from minicode.core.model import ModelResponse
 from minicode.core.query_loop import QueryLoop, StopReason
@@ -140,6 +151,19 @@ class FailingEchoTool(EchoTool):
         raise ToolExecutionError("echo backend is unavailable")
 
 
+class CrashingEchoTool(EchoTool):
+    """Echo tool that raises an unexpected failure."""
+
+    async def execute(
+        self,
+        arguments: ToolArguments,
+    ) -> str:
+        """Raise an unexpected programming failure."""
+        del arguments
+
+        raise RuntimeError("unexpected echo crash")
+
+
 @pytest.mark.asyncio
 async def test_dispatcher_returns_error_for_unknown_tool() -> None:
     registry = ToolRegistry()
@@ -215,6 +239,55 @@ async def test_dispatcher_does_not_execute_unapproved_tool(
 
 
 @pytest.mark.asyncio
+async def test_dispatcher_records_policy_decision() -> None:
+    registry = ToolRegistry()
+    tool = EchoTool()
+    registry.register(tool)
+
+    policy = ConfiguredToolPolicy(
+        decisions={
+            "echo": PolicyDecision(
+                outcome=PolicyOutcome.DENY,
+                reason="blocked by test policy",
+            ),
+        },
+    )
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    dispatcher = ToolDispatcher(
+        registry=registry,
+        policy=policy,
+        event_ledger=ledger,
+    )
+    tool_call = ToolCall(
+        call_id="call_001",
+        name="echo",
+        arguments={
+            "text": "must not execute",
+        },
+    )
+
+    result = await dispatcher.execute(tool_call)
+
+    assert result.is_error is True
+    assert tool.received_arguments == []
+    assert ledger.events == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=1,
+            kind=EventKind.TOOL_POLICY_DECIDED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "deny",
+                "reason": "blocked by test policy",
+            },
+        ),
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     (
         "approved",
@@ -262,10 +335,14 @@ async def test_dispatcher_resolves_ask_with_approval(
     approver = RecordingApprover(
         approved=approved,
     )
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
     dispatcher = ToolDispatcher(
         registry=registry,
         policy=policy,
         approver=approver,
+        event_ledger=ledger,
     )
     tool_call = ToolCall(
         call_id="call_001",
@@ -289,6 +366,29 @@ async def test_dispatcher_resolves_ask_with_approval(
         )
     ]
     assert tool.received_arguments == (expected_arguments)
+    assert ledger.events[:2] == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=1,
+            kind=EventKind.TOOL_POLICY_DECIDED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "ask",
+                "reason": reason,
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=2,
+            kind=EventKind.TOOL_APPROVAL_RESOLVED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "approved": approved,
+            },
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -341,9 +441,15 @@ async def test_dispatcher_validates_and_executes_registered_tool() -> None:
     registry = ToolRegistry()
     tool = EchoTool()
     registry.register(tool)
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    artifact_store = InMemoryArtifactStore()
     dispatcher = ToolDispatcher(
         registry=registry,
         policy=_allow_tools("echo"),
+        event_ledger=ledger,
+        artifact_store=artifact_store,
     )
     tool_call = ToolCall(
         call_id="call_001",
@@ -363,6 +469,46 @@ async def test_dispatcher_validates_and_executes_registered_tool() -> None:
             text="hello",
         )
     ]
+    assert ledger.events == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=1,
+            kind=EventKind.TOOL_POLICY_DECIDED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "allow",
+                "reason": "allowed by test policy",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=2,
+            kind=EventKind.TOOL_EXECUTION_STARTED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.TOOL_EXECUTION_FINISHED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "succeeded",
+                "output_artifact": {
+                    "artifact_id": (f"sha256:{sha256(b'hello').hexdigest()}"),
+                    "media_type": "text/plain",
+                    "byte_count": 5,
+                },
+            },
+        ),
+    )
+    artifact_id = f"sha256:{sha256(b'hello').hexdigest()}"
+
+    assert artifact_store.read_text(artifact_id) == "hello"
 
 
 @pytest.mark.asyncio
@@ -395,9 +541,86 @@ async def test_dispatcher_returns_error_for_invalid_arguments() -> None:
 async def test_dispatcher_returns_error_for_tool_execution_failure() -> None:
     registry = ToolRegistry()
     registry.register(FailingEchoTool())
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    artifact_store = InMemoryArtifactStore()
     dispatcher = ToolDispatcher(
         registry=registry,
         policy=_allow_tools("echo"),
+        event_ledger=ledger,
+        artifact_store=artifact_store,
+    )
+    tool_call = ToolCall(
+        call_id="call_001",
+        name="echo",
+        arguments={
+            "text": "hello",
+        },
+    )
+    expected_output = "tool 'echo' failed: echo backend is unavailable"
+
+    result = await dispatcher.execute(tool_call)
+
+    assert result.call_id == "call_001"
+    assert result.output == expected_output
+    assert result.is_error is True
+    assert ledger.events == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=1,
+            kind=EventKind.TOOL_POLICY_DECIDED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "allow",
+                "reason": "allowed by test policy",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=2,
+            kind=EventKind.TOOL_EXECUTION_STARTED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.TOOL_EXECUTION_FINISHED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "failed",
+                "error_type": "ToolExecutionError",
+                "output_artifact": {
+                    "artifact_id": (
+                        f"sha256:{sha256(expected_output.encode('utf-8')).hexdigest()}"
+                    ),
+                    "media_type": "text/plain",
+                    "byte_count": len(expected_output.encode("utf-8")),
+                },
+            },
+        ),
+    )
+    artifact_id = f"sha256:{sha256(expected_output.encode('utf-8')).hexdigest()}"
+
+    assert artifact_store.read_text(artifact_id) == expected_output
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_records_and_reraises_unexpected_tool_failure() -> None:
+    registry = ToolRegistry()
+    registry.register(CrashingEchoTool())
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    dispatcher = ToolDispatcher(
+        registry=registry,
+        policy=_allow_tools("echo"),
+        event_ledger=ledger,
     )
     tool_call = ToolCall(
         call_id="call_001",
@@ -407,11 +630,107 @@ async def test_dispatcher_returns_error_for_tool_execution_failure() -> None:
         },
     )
 
-    result = await dispatcher.execute(tool_call)
+    with pytest.raises(
+        RuntimeError,
+        match="unexpected echo crash",
+    ):
+        await dispatcher.execute(tool_call)
 
-    assert result.call_id == "call_001"
-    assert result.output == ("tool 'echo' failed: echo backend is unavailable")
-    assert result.is_error is True
+    assert ledger.events[-2:] == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=2,
+            kind=EventKind.TOOL_EXECUTION_STARTED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.TOOL_EXECUTION_FINISHED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "failed",
+                "error_type": "RuntimeError",
+            },
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_records_and_reraises_tool_cancellation() -> None:
+    tool_started = asyncio.Event()
+    tool_cleaned_up = asyncio.Event()
+
+    class WaitingEchoTool(EchoTool):
+        async def execute(
+            self,
+            arguments: ToolArguments,
+        ) -> str:
+            del arguments
+            tool_started.set()
+
+            try:
+                await asyncio.Event().wait()
+            finally:
+                tool_cleaned_up.set()
+
+            raise AssertionError("unreachable")
+
+    registry = ToolRegistry()
+    registry.register(WaitingEchoTool())
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    dispatcher = ToolDispatcher(
+        registry=registry,
+        policy=_allow_tools("echo"),
+        event_ledger=ledger,
+    )
+    tool_call = ToolCall(
+        call_id="call_001",
+        name="echo",
+        arguments={
+            "text": "hello",
+        },
+    )
+
+    task = asyncio.create_task(dispatcher.execute(tool_call))
+
+    await tool_started.wait()
+
+    task.cancel()
+
+    with pytest.raises(
+        asyncio.CancelledError,
+    ):
+        await task
+
+    assert tool_cleaned_up.is_set()
+    assert ledger.events[-2:] == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=2,
+            kind=EventKind.TOOL_EXECUTION_STARTED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.TOOL_EXECUTION_FINISHED,
+            payload={
+                "call_id": "call_001",
+                "tool_name": "echo",
+                "outcome": "cancelled",
+            },
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -436,18 +755,22 @@ async def test_query_loop_executes_tool_through_dispatcher() -> None:
             final_response,
         ]
     )
-
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
     registry = ToolRegistry()
     tool = EchoTool()
     registry.register(tool)
     dispatcher = ToolDispatcher(
         registry=registry,
         policy=_allow_tools("echo"),
+        event_ledger=ledger,
     )
     loop = QueryLoop(
         model=model,
         tool_runtime=dispatcher,
         max_turns=2,
+        event_ledger=ledger,
     )
     initial_history = (
         Message(
@@ -481,6 +804,19 @@ async def test_query_loop_executes_tool_through_dispatcher() -> None:
             text="hello",
         )
     ]
+    assert tuple(event.kind for event in ledger.events) == (
+        EventKind.RUN_STARTED,
+        EventKind.MODEL_CALL_STARTED,
+        EventKind.MODEL_CALL_FINISHED,
+        EventKind.TOOL_POLICY_DECIDED,
+        EventKind.TOOL_EXECUTION_STARTED,
+        EventKind.TOOL_EXECUTION_FINISHED,
+        EventKind.MODEL_CALL_STARTED,
+        EventKind.MODEL_CALL_FINISHED,
+        EventKind.RUN_FINISHED,
+    )
+
+    assert tuple(event.sequence for event in ledger.events) == tuple(range(1, 10))
 
 
 @pytest.mark.asyncio

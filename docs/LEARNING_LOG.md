@@ -89,6 +89,7 @@
 | 2026-08-29 | M4 非流式 Model Adapter | 完成 | 实现 Provider 无关 ModelRequest、OpenAI 兼容双向转换、DashScope 配置与组装、SDK 错误分类；离线测试覆盖普通消息、工具消息、协议错误和网络错误映射；真实文本请求与两轮 read-file 工具闭环通过 |
 | 2026-09-04 | M4 Model Adapter 学习门禁 | 通过 | 能讲回 ModelRequest 到 ToolCall/ToolResult 再到下一轮的数据流；能解释流式 stop 与整个流结束的区别、usage chunk、超时内部取消与对外 TimeoutError，以及无效工具 JSON 的协议错误链 |
 | 2026-09-07 | M5 Safety Coding Tools | 通过 | 实现 search/edit/test、Policy 与 Approval；能解释执行前短路、路径与参数注入、精确替换、进程超时清理及分层错误翻译；362 个测试和静态门禁通过 |
+| 2026-09-09 | M6 Event Ledger | 通过 | 实现 Event、Artifact、Checkpoint、Resume 与 Replay；完成失败工具调用回放变式；能解释恢复、审计和崩溃一致性边界；最终工程门禁见本阶段复盘 |
 
 ## 2026-08-22 / M2 / 最小 Query Loop 复盘
 
@@ -136,4 +137,15 @@
 - 当前测试证据：362 个 pytest 用例，Ruff、格式检查、mypy 和 `git diff --check` 全部通过。
 - 已知限制：Workspace 检查存在 TOCTOU 窗口；pytest 子进程仍继承环境且输出未限长；当前没有 OS Sandbox、进程组清理或持久审批事件。
 - 下一次复习日期：2026-09-14。
+- 是否通过学习门禁：通过。
+
+## 2026-09-09 / M6 / Event Ledger 复盘
+
+- 已实现的数据流：QueryLoop 与 Dispatcher 共享 EventLedger → 工具输出写入 ArtifactStore → 每个 ToolResult 后保存 RunCheckpoint → Resume 只补执行 pending ToolCall → RunReplay 只读解释历史。
+- 已落实的设计取舍：事件、大输出和可恢复状态分开保存；Checkpoint 按每个完成工具写入；Replay 与真实恢复执行分离；观察层记录后保留异常和取消语义。
+- 已覆盖的失败模式：事件 run ID 混合、sequence 断裂、非法起始边界、无效最终 outcome、checkpoint 中重复 call ID、孤立或重复 ToolResult、部分工具完成后后续失败。
+- 变式练习结果：为 RunReplay 增加按事件顺序返回失败工具 call ID 的属性；测试同时放入 succeeded、failed 和 cancelled 结果，发现并修复了读取错误 payload key、set 破坏顺序和 JsonValue 未收窄三个问题。
+- 掌握证据：能不看代码说明 Event 记录事实、Artifact 保存输出、Checkpoint 保存恢复状态；能解释共享 Ledger 的全局顺序、逐 ToolResult checkpoint 的 I/O 取舍、恢复预算延续，以及“副作用已完成但记录未持久化”的重复执行窗口。
+- 当前测试证据：全项目 405 个 pytest 用例通过；93 个文件通过 Ruff lint 与格式门禁，39 个源文件通过 mypy，`git diff --check` 通过。
+- 下一次复习日期：2026-09-16。
 - 是否通过学习门禁：通过。

@@ -19,3 +19,4 @@ ADR 用于记录对系统边界有长期影响的决定。
 - [ADR-0004：使用 Provider 无关的模型边界与 OpenAI 兼容 Adapter](0004-provider-neutral-model-boundary.md)
 - [ADR-0005：分离流式事件、模型调用观测与 Query Loop 总时限](0005-stream-events-observation-and-total-timeout.md)
 - [ADR-0006：集中实施工具策略并使用受限 argv 子进程](0006-centralized-tool-policy-and-bounded-process.md)
+- [ADR-0007：使用追加事件、独立 Artifact 与显式 Checkpoint 恢复](0007-append-only-events-and-explicit-resume.md)

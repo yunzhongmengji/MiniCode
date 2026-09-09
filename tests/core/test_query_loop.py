@@ -2,10 +2,20 @@ import asyncio
 
 import pytest
 
+from minicode.core.checkpoints import (
+    InMemoryCheckpointStore,
+    RunCheckpoint,
+)
+from minicode.core.events import (
+    EventKind,
+    InMemoryEventLedger,
+    LedgerEvent,
+)
 from minicode.core.messages import Message, MessageRole
 from minicode.core.model import (
     ModelRequest,
     ModelResponse,
+    ModelUsage,
 )
 from minicode.core.query_loop import QueryLoop, StopReason
 from minicode.core.tool_calls import ToolCall, ToolResult
@@ -168,10 +178,16 @@ async def test_query_loop_executes_scripted_tool_and_continues() -> None:
     tool_runtime = ScriptedToolRuntime(
         results=[tool_result],
     )
+    event_ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    checkpoint_store = InMemoryCheckpointStore()
     loop = QueryLoop(
         model=model,
         tool_runtime=tool_runtime,
         max_turns=2,
+        event_ledger=event_ledger,
+        checkpoint_store=checkpoint_store,
     )
     initial_history = (
         Message(
@@ -200,6 +216,223 @@ async def test_query_loop_executes_scripted_tool_and_continues() -> None:
         second_history,
     )
     assert tool_runtime.calls == (tool_call,)
+    assert checkpoint_store.latest("run_001") == RunCheckpoint(
+        run_id="run_001",
+        message_history=second_history,
+        turns_used=1,
+        tool_calls_used=1,
+    )
+    checkpoint_events = tuple(
+        event
+        for event in event_ledger.events
+        if event.kind is EventKind.CHECKPOINT_SAVED
+    )
+
+    assert checkpoint_events == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=4,
+            kind=EventKind.CHECKPOINT_SAVED,
+            payload={
+                "turns_used": 1,
+                "tool_calls_used": 1,
+                "message_history_items": 4,
+            },
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_checkpoints_completed_tool_before_later_failure() -> None:
+    first_tool_call = ToolCall(
+        call_id="call_001",
+        name="read_file",
+        arguments={
+            "path": "README.md",
+        },
+    )
+    second_tool_call = ToolCall(
+        call_id="call_002",
+        name="read_file",
+        arguments={
+            "path": "docs/ROADMAP.md",
+        },
+    )
+    first_tool_result = ToolResult(
+        call_id="call_001",
+        output="README contents.",
+    )
+    model = ScriptedModel(
+        responses=[
+            ModelResponse(
+                content="",
+                tool_calls=(
+                    first_tool_call,
+                    second_tool_call,
+                ),
+            ),
+        ],
+    )
+    tool_runtime = ScriptedToolRuntime(
+        results=[
+            first_tool_result,
+        ],
+    )
+    event_ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    checkpoint_store = InMemoryCheckpointStore()
+    loop = QueryLoop(
+        model=model,
+        tool_runtime=tool_runtime,
+        max_turns=2,
+        event_ledger=event_ledger,
+        checkpoint_store=checkpoint_store,
+    )
+    initial_history = (
+        Message(
+            role=MessageRole.USER,
+            content="Read both files.",
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=("scripted tool runtime has no results remaining"),
+    ):
+        await loop.run(initial_history)
+
+    assert checkpoint_store.latest("run_001") == RunCheckpoint(
+        run_id="run_001",
+        message_history=(
+            *initial_history,
+            first_tool_call,
+            second_tool_call,
+            first_tool_result,
+        ),
+        turns_used=1,
+        tool_calls_used=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_resumes_only_pending_tool_calls() -> None:
+    initial_message = Message(
+        role=MessageRole.USER,
+        content="Read both files.",
+    )
+    first_tool_call = ToolCall(
+        call_id="call_001",
+        name="read_file",
+        arguments={
+            "path": "README.md",
+        },
+    )
+    second_tool_call = ToolCall(
+        call_id="call_002",
+        name="read_file",
+        arguments={
+            "path": "docs/ROADMAP.md",
+        },
+    )
+    first_tool_result = ToolResult(
+        call_id="call_001",
+        output="README contents.",
+    )
+    second_tool_result = ToolResult(
+        call_id="call_002",
+        output="Roadmap contents.",
+    )
+
+    checkpoint = RunCheckpoint(
+        run_id="run_001",
+        message_history=(
+            initial_message,
+            first_tool_call,
+            second_tool_call,
+            first_tool_result,
+        ),
+        turns_used=1,
+        tool_calls_used=1,
+    )
+
+    final_response = ModelResponse(
+        content="Both files have been read.",
+    )
+    model = ScriptedModel(
+        responses=[
+            final_response,
+        ],
+    )
+    tool_runtime = ScriptedToolRuntime(
+        results=[
+            second_tool_result,
+        ],
+    )
+    event_ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    checkpoint_store = InMemoryCheckpointStore()
+    loop = QueryLoop(
+        model=model,
+        tool_runtime=tool_runtime,
+        max_turns=2,
+        max_tool_calls=2,
+        event_ledger=event_ledger,
+        checkpoint_store=checkpoint_store,
+    )
+
+    result = await loop.resume(checkpoint)
+
+    resumed_history = (
+        *checkpoint.message_history,
+        second_tool_result,
+    )
+
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.response == final_response
+    assert result.message_history == resumed_history
+    assert result.turns_used == 2
+
+    assert tool_runtime.calls == (second_tool_call,)
+    assert model.calls == (resumed_history,)
+
+    assert checkpoint_store.latest("run_001") == RunCheckpoint(
+        run_id="run_001",
+        message_history=resumed_history,
+        turns_used=1,
+        tool_calls_used=2,
+    )
+    assert tuple(event.kind for event in event_ledger.events) == (
+        EventKind.RUN_RESUMED,
+        EventKind.CHECKPOINT_SAVED,
+        EventKind.MODEL_CALL_STARTED,
+        EventKind.MODEL_CALL_FINISHED,
+        EventKind.RUN_FINISHED,
+    )
+
+    assert event_ledger.events[0] == LedgerEvent(
+        run_id="run_001",
+        sequence=1,
+        kind=EventKind.RUN_RESUMED,
+        payload={
+            "message_history_items": 4,
+            "turns_used": 1,
+            "tool_calls_used": 1,
+            "pending_tool_call_count": 1,
+        },
+    )
+
+    assert event_ledger.events[-1] == LedgerEvent(
+        run_id="run_001",
+        sequence=5,
+        kind=EventKind.RUN_FINISHED,
+        payload={
+            "outcome": "succeeded",
+            "stop_reason": "completed",
+            "turns_used": 2,
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -804,6 +1037,9 @@ def test_query_loop_rejects_invalid_total_timeout(
 
 @pytest.mark.asyncio
 async def test_query_loop_propagates_external_cancellation() -> None:
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
     model_started = asyncio.Event()
     model_cleaned_up = asyncio.Event()
 
@@ -825,6 +1061,7 @@ async def test_query_loop_propagates_external_cancellation() -> None:
     loop = QueryLoop(
         model=WaitingModel(),
         total_timeout_seconds=10.0,
+        event_ledger=ledger,
     )
 
     task = asyncio.create_task(loop.run(()))
@@ -839,6 +1076,25 @@ async def test_query_loop_propagates_external_cancellation() -> None:
         await task
 
     assert model_cleaned_up.is_set()
+    assert ledger.events[-2:] == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.MODEL_CALL_FINISHED,
+            payload={
+                "turn": 1,
+                "outcome": "cancelled",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=4,
+            kind=EventKind.RUN_FINISHED,
+            payload={
+                "outcome": "cancelled",
+            },
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -892,3 +1148,210 @@ async def test_query_loop_total_timeout_covers_tool_execution() -> None:
 
     assert tool_started.is_set()
     assert model.calls == (initial_history,)
+
+
+@pytest.mark.asyncio
+async def test_query_loop_records_run_boundaries() -> None:
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    response = ModelResponse(
+        content="Task completed.",
+    )
+    model = ScriptedModel(
+        responses=[
+            response,
+        ],
+    )
+    loop = QueryLoop(
+        model=model,
+        max_turns=3,
+        max_tool_calls=5,
+        event_ledger=ledger,
+    )
+    initial_history = (
+        Message(
+            role=MessageRole.USER,
+            content="Complete the task.",
+        ),
+    )
+
+    result = await loop.run(initial_history)
+
+    assert result.response is response
+    assert ledger.events == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=1,
+            kind=EventKind.RUN_STARTED,
+            payload={
+                "initial_history_items": 1,
+                "max_turns": 3,
+                "max_tool_calls": 5,
+                "total_timeout_seconds": None,
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=2,
+            kind=EventKind.MODEL_CALL_STARTED,
+            payload={
+                "turn": 1,
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.MODEL_CALL_FINISHED,
+            payload={
+                "turn": 1,
+                "outcome": "succeeded",
+                "tool_call_count": 0,
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=4,
+            kind=EventKind.RUN_FINISHED,
+            payload={
+                "outcome": "succeeded",
+                "stop_reason": "completed",
+                "turns_used": 1,
+            },
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_records_model_usage() -> None:
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    model = ScriptedModel(
+        responses=[
+            ModelResponse(
+                content="Task completed.",
+                usage=ModelUsage(
+                    input_tokens=12,
+                    output_tokens=5,
+                ),
+            ),
+        ],
+    )
+    loop = QueryLoop(
+        model=model,
+        event_ledger=ledger,
+    )
+
+    await loop.run(())
+
+    assert ledger.events[2] == LedgerEvent(
+        run_id="run_001",
+        sequence=3,
+        kind=EventKind.MODEL_CALL_FINISHED,
+        payload={
+            "turn": 1,
+            "outcome": "succeeded",
+            "tool_call_count": 0,
+            "input_tokens": 12,
+            "output_tokens": 5,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_records_timed_out_run() -> None:
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+
+    class NeverCompletingModel:
+        async def complete(
+            self,
+            request: ModelRequest,
+        ) -> ModelResponse:
+            del request
+
+            await asyncio.Event().wait()
+
+            raise AssertionError("unreachable")
+
+    loop = QueryLoop(
+        model=NeverCompletingModel(),
+        total_timeout_seconds=0.01,
+        event_ledger=ledger,
+    )
+
+    with pytest.raises(
+        TimeoutError,
+    ):
+        await loop.run(())
+
+    assert ledger.events[-2:] == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.MODEL_CALL_FINISHED,
+            payload={
+                "turn": 1,
+                "outcome": "cancelled",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=4,
+            kind=EventKind.RUN_FINISHED,
+            payload={
+                "outcome": "timed_out",
+            },
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_records_failed_run() -> None:
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+
+    class FailingModel:
+        async def complete(
+            self,
+            request: ModelRequest,
+        ) -> ModelResponse:
+            del request
+
+            raise RuntimeError("simulated model failure")
+
+    loop = QueryLoop(
+        model=FailingModel(),
+        event_ledger=ledger,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="simulated model failure",
+    ):
+        await loop.run(())
+
+    assert ledger.events[-2:] == (
+        LedgerEvent(
+            run_id="run_001",
+            sequence=3,
+            kind=EventKind.MODEL_CALL_FINISHED,
+            payload={
+                "turn": 1,
+                "outcome": "failed",
+                "error_type": "RuntimeError",
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=4,
+            kind=EventKind.RUN_FINISHED,
+            payload={
+                "outcome": "failed",
+                "error_type": "RuntimeError",
+            },
+        ),
+    )

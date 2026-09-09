@@ -1,6 +1,6 @@
 # MiniCode 威胁模型
 
-状态：M5 已复审；每次新增 Tool、Memory 或 Agent 能力时继续复审
+状态：M6 已复审；每次新增 Tool、Memory 或 Agent 能力时继续复审
 
 ## 1. 需要保护的资产
 
@@ -52,7 +52,7 @@ OS Sandbox / Container：最终隔离边界
 - 进程优先以 argv 启动，不拼接 Shell 字符串。
 - 环境变量默认清空，只注入白名单。
 - 每个进程都有超时、输出和资源上限。
-- 每次 Tool Start 之前存在 Allow Policy Event。
+- 每次 Tool Start 之前存在允许继续的 Policy Decision；Ask 决策还必须存在批准结果。
 - 危险调用绑定一次性、短期、不可转让的 Approval。
 - 参数或目标发生变化后，旧 Approval 立即失效。
 - 子 Agent 权限与预算只能是父 Agent 的子集。
@@ -86,15 +86,17 @@ OS Sandbox / Container：最终隔离边界
 - SearchTextTool 限制遍历文件数、单文件 byte 数和返回匹配数，并使用稳定路径顺序。
 - EditFileTool 只替换唯一的精确文本，检查源文件与更新结果大小，并通过同目录临时文件和 `os.replace()` 降低部分写入风险。
 - RunTestsTool 只构造固定 pytest argv，拒绝以 `-` 开头的路径参数；AsyncioProcessRunner 不调用 shell，并在超时时终止和回收直接子进程。
+- QueryLoop 与 Dispatcher 共享结构化 Event Ledger，记录模型、策略、审批、工具、checkpoint 和最终状态的连续顺序。
+- 工具输出可保存为内容寻址 Artifact，事件只携带引用元数据；每个 ToolResult 后保存 checkpoint，恢复时只补执行 pending 调用。
 
 仍然存在的限制：
 
 - Workspace 的“解析—检查—打开”不是原子操作，仍存在符号链接被并发替换的 TOCTOU 风险。
 - Workspace 尚未原子确认目标为普通文件；FIFO、设备文件或特殊挂载仍需要文件类型规则、超时与 OS Sandbox 防护。
-- 当前 Policy 只按工具名称配置，Approval 还没有一次性令牌、过期时间和持久审计事件。
+- 当前 Policy 只按工具名称配置，Approval 已有内存事件，但还没有一次性令牌、过期时间或持久审计后端。
 - 子进程继承当前环境，stdout/stderr 由 `communicate()` 全量保存在内存中，尚未实现环境变量白名单和输出 byte 上限。
 - 超时只直接终止 pytest 进程，尚未建立独立进程组来保证其所有后代进程同时退出。
-- 尚未实现 Event Ledger、秘密脱敏和 OS Sandbox。
+- Event、Artifact 和 Checkpoint 当前仅存内存，尚未实现持久化、秘密脱敏、访问控制和崩溃一致性。
 - 当前只开放固定 pytest 命令，不支持任意 Shell；应用层 argv 和路径规则不能替代 OS 级隔离。
 
 M12 才引入容器或同等级隔离并完成系统化红队。在此之前，仅开放精简、结构化、受测试的 Coding Tools。

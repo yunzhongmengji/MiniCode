@@ -48,6 +48,8 @@ QueryLoop 只依赖 `ToolRuntime.execute(ToolCall) -> ToolResult`。测试时使
 | `EditFileTool` | 唯一精确替换、结果大小检查和受控写入 | 猜测多个匹配中的修改目标 |
 | `RunTestsTool` | 验证测试路径、构造固定 pytest argv 并解释进程结果 | 任意命令或 Shell 执行 |
 | `ProcessRunner` | 启动无 shell 子进程、收集结果并负责超时清理 | 决定允许运行什么命令 |
+| `EventLedger` | 记录 Policy、Approval 和工具执行的全局顺序 | 决定权限或执行工具 |
+| `ArtifactStore` | 保存工具输出并向事件返回内容引用 | 将输出反馈给模型 |
 
 ## 3. 参数 Schema 与模型工具定义
 
@@ -80,7 +82,7 @@ ToolSpec(
 | `ToolExecutionError` | 转换为关联原调用的错误 ToolResult | 是 |
 | 意外 `TypeError`、`RuntimeError` 等程序错误 | 当前继续抛出并保留 traceback | 否 |
 
-具体工具使用 `raise ToolExecutionError(...) from error`，既向模型暴露稳定、安全的工具语义，也通过 `__cause__` 为开发者保留底层异常链。
+具体工具使用 `raise ToolExecutionError(...) from error`，既向模型暴露稳定、安全的工具语义，也通过 `__cause__` 为开发者保留底层异常链。M6 的 Dispatcher 在实际执行前后记录 TOOL_EXECUTION_STARTED/FINISHED；预期失败会生成错误 ToolResult 和可选 Artifact，意外异常记录类型后继续抛出。
 
 ## 5. Workspace 文件边界
 
@@ -139,6 +141,10 @@ Dispatcher 固定按以下顺序处理调用：
 - RunTestsTool/ProcessRunner：固定 argv、参数注入拒绝、真实 pytest 子进程、失败输出、超时终止清理及审批前禁止启动。
 - M5 完成时全项目证据：362 个 pytest 用例，Ruff、格式检查、mypy 与 `git diff --check` 全部通过。
 
-## 9. 下一步
+## 9. M6 审计接入
 
-M6 将引入 Event Ledger，把 ToolCall、PolicyDecision、Approval、ToolResult 和最终停止状态记录为可审计事件。当前 Policy 与 Approval 已经控制执行，但尚无持久、可回放的决策证据。
+Dispatcher 可以与 QueryLoop 共享同一个 EventLedger。合法 PolicyDecision 产生 TOOL_POLICY_DECIDED；Ask 的严格布尔结果产生 TOOL_APPROVAL_RESOLVED；只有进入真实执行路径后才产生 TOOL_EXECUTION_STARTED，随后以 succeeded、failed 或 cancelled 结束。
+
+成功输出和预期 ToolExecutionError 文本可以写入 ArtifactStore，事件保存 artifact ID、媒体类型和 byte 数。ToolResult 仍是反馈给模型的协议，Artifact 是审计存储，二者不能互相替代。
+
+当前 EventLedger 和 ArtifactStore 只有内存实现，尚不提供跨进程持久审计、秘密脱敏或访问控制。完整设计见 [Event Ledger](EVENT_LEDGER.md)。

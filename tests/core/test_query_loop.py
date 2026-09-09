@@ -20,6 +20,22 @@ from minicode.core.model import (
 from minicode.core.query_loop import QueryLoop, StopReason
 from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.models.scripted import ScriptedModel
+from minicode.skills.catalog import (
+    SkillCatalog,
+)
+from minicode.skills.context import (
+    SkillContext,
+    SkillContextBuilder,
+)
+from minicode.skills.loader import (
+    LoadedSkill,
+)
+from minicode.skills.manifest import (
+    SkillManifest,
+)
+from minicode.skills.router import (
+    KeywordSkillRouter,
+)
 from minicode.tools.schema import ToolArguments
 from minicode.tools.scripted import ScriptedToolRuntime
 from minicode.tools.spec import ToolSpec
@@ -1353,5 +1369,188 @@ async def test_query_loop_records_failed_run() -> None:
                 "outcome": "failed",
                 "error_type": "RuntimeError",
             },
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_reuses_skill_context_without_changing_history() -> None:
+    manifest = SkillManifest(
+        name="pytest-debugging",
+        description=("Diagnose Python test failures."),
+        entrypoint="SKILL.md",
+    )
+    skill_context = SkillContext(
+        skills=(
+            LoadedSkill(
+                manifest=manifest,
+                instructions=("Run the smallest failing test first."),
+            ),
+        ),
+    )
+
+    class RecordingSkillContextProvider:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def build(
+            self,
+            query: str,
+        ) -> SkillContext:
+            self.queries.append(query)
+
+            return skill_context
+
+    tool_call = ToolCall(
+        call_id="call_001",
+        name="run_tests",
+        arguments={
+            "path": "tests",
+        },
+    )
+    tool_result = ToolResult(
+        call_id="call_001",
+        output="1 passed",
+    )
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(
+                content="",
+                tool_calls=(tool_call,),
+            ),
+            ModelResponse(
+                content="Tests now pass.",
+            ),
+        ),
+    )
+    tool_runtime = ScriptedToolRuntime(
+        results=(tool_result,),
+    )
+    provider = RecordingSkillContextProvider()
+    loop = QueryLoop(
+        model=model,
+        tool_runtime=tool_runtime,
+        max_turns=2,
+        skill_context_provider=provider,
+    )
+    initial_history = (
+        Message(
+            role=MessageRole.USER,
+            content="Explain the repository.",
+        ),
+        Message(
+            role=MessageRole.ASSISTANT,
+            content="What should I do next?",
+        ),
+        Message(
+            role=MessageRole.USER,
+            content=("Fix the failing pytest test."),
+        ),
+    )
+
+    result = await loop.run(initial_history)
+
+    expected_history = (
+        *initial_history,
+        tool_call,
+        tool_result,
+    )
+    rendered = skill_context.render()
+
+    assert provider.queries == [
+        "Fix the failing pytest test.",
+    ]
+    assert tuple(request.instructions for request in model.requests) == (
+        (rendered,),
+        (rendered,),
+    )
+    assert model.calls == (
+        initial_history,
+        expected_history,
+    )
+    assert result.message_history == (expected_history)
+
+
+@pytest.mark.asyncio
+async def test_query_loop_records_skill_events_before_model_call() -> None:
+    manifest = SkillManifest(
+        name="pytest-debugging",
+        description=("Diagnose Python test failures."),
+        entrypoint="SKILL.md",
+        tags=("pytest",),
+    )
+    catalog = SkillCatalog()
+    catalog.register(manifest)
+
+    class StaticSkillLoader:
+        async def load(
+            self,
+            selected_manifest: SkillManifest,
+        ) -> LoadedSkill:
+            return LoadedSkill(
+                manifest=selected_manifest,
+                instructions=("Run the smallest failing test first."),
+            )
+
+    ledger = InMemoryEventLedger(
+        run_id="run_001",
+    )
+    builder = SkillContextBuilder(
+        router=KeywordSkillRouter(
+            catalog=catalog,
+        ),
+        loader=StaticSkillLoader(),
+        event_ledger=ledger,
+    )
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(
+                content="Task completed.",
+            ),
+        ),
+    )
+    loop = QueryLoop(
+        model=model,
+        event_ledger=ledger,
+        skill_context_provider=builder,
+    )
+
+    await loop.run(
+        (
+            Message(
+                role=MessageRole.USER,
+                content=("Fix the pytest failure."),
+            ),
+        )
+    )
+
+    assert tuple(event.kind for event in ledger.events) == (
+        EventKind.RUN_STARTED,
+        EventKind.SKILL_SELECTION_FINISHED,
+        EventKind.SKILL_LOAD_STARTED,
+        EventKind.SKILL_LOAD_FINISHED,
+        EventKind.MODEL_CALL_STARTED,
+        EventKind.MODEL_CALL_FINISHED,
+        EventKind.RUN_FINISHED,
+    )
+
+    assert tuple(event.sequence for event in ledger.events) == (
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+    )
+
+    assert model.requests[0].instructions == (
+        (
+            "# Loaded Skills\n"
+            "\n"
+            "## Skill: pytest-debugging\n"
+            "\n"
+            "Run the smallest failing "
+            "test first."
         ),
     )

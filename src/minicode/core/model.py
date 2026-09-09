@@ -96,6 +96,7 @@ class ModelRequest:
 
     conversation: Sequence[ConversationItem]
     tool_specs: Sequence[ToolSpec] = ()
+    instructions: Sequence[str] = ()
 
     def __post_init__(self) -> None:
         """Validate fields and copy request inputs into immutable snapshots."""
@@ -124,6 +125,22 @@ class ModelRequest:
             if not isinstance(tool_spec, ToolSpec):
                 raise TypeError("tool_specs must contain only ToolSpec instances")
 
+        if not isinstance(
+            self.instructions,
+            Sequence,
+        ) or isinstance(
+            self.instructions,
+            (str, bytes),
+        ):
+            raise TypeError("instructions must be a sequence")
+
+        for instruction in self.instructions:
+            if not isinstance(instruction, str):
+                raise TypeError("instructions must contain only strings")
+
+            if not instruction.strip():
+                raise ValueError("instructions must not contain blank strings")
+
         object.__setattr__(
             self,
             "conversation",
@@ -133,6 +150,12 @@ class ModelRequest:
             self,
             "tool_specs",
             tuple(self.tool_specs),
+        )
+
+        object.__setattr__(
+            self,
+            "instructions",
+            tuple(self.instructions),
         )
 
 

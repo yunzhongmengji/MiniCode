@@ -26,7 +26,21 @@ from minicode.core.tool_calls import (
     ToolCall,
 )
 from minicode.core.tool_runtime import ToolRuntime
+from minicode.skills.context import (
+    SkillContextProvider,
+)
 from minicode.tools.spec import ToolSpec
+
+
+def _latest_user_content(
+    messages: Sequence[ConversationItem],
+) -> str:
+    """Return the most recent user message."""
+    for item in reversed(messages):
+        if isinstance(item, Message) and item.role is MessageRole.USER:
+            return item.content
+
+    return ""
 
 
 class StopReason(StrEnum):
@@ -86,6 +100,7 @@ class QueryLoop:
         total_timeout_seconds: float | None = None,
         event_ledger: EventLedger | None = None,
         checkpoint_store: CheckpointStore | None = None,
+        skill_context_provider: (SkillContextProvider | None) = None,
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -145,6 +160,7 @@ class QueryLoop:
         self._total_timeout_seconds = normalized_total_timeout_seconds
         self._event_ledger = event_ledger
         self._checkpoint_store = checkpoint_store
+        self._skill_context_provider = skill_context_provider
 
     def _record_event(
         self,
@@ -345,6 +361,29 @@ class QueryLoop:
             )
         )
 
+    async def _build_skill_instructions(
+        self,
+        message_history: Sequence[ConversationItem],
+    ) -> tuple[str, ...]:
+        """Build optional instructions for one run."""
+        provider = self._skill_context_provider
+
+        if provider is None:
+            return ()
+
+        query = _latest_user_content(message_history)
+
+        if not query:
+            return ()
+
+        context = await provider.build(query)
+        rendered = context.render()
+
+        if not rendered:
+            return ()
+
+        return (rendered,)
+
     async def _run(
         self,
         messages: Sequence[ConversationItem],
@@ -354,6 +393,7 @@ class QueryLoop:
     ) -> RunResult:
         """Run model turns until completion or a controlled stop."""
         message_history = tuple(messages)
+        instructions = await self._build_skill_instructions(message_history)
 
         for turn in range(
             first_turn,
@@ -362,6 +402,7 @@ class QueryLoop:
             request = ModelRequest(
                 conversation=message_history,
                 tool_specs=self._tool_specs,
+                instructions=instructions,
             )
             self._record_event(
                 EventKind.MODEL_CALL_STARTED,

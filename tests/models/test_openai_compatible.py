@@ -28,6 +28,7 @@ from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.models.openai_compatible import (
     OpenAICompatibleModel,
     conversation_to_openai_messages,
+    model_request_to_openai_messages,
     openai_completion_to_model_response,
     tool_spec_to_openai_tool,
 )
@@ -56,6 +57,31 @@ def test_tool_spec_converts_to_openai_function_tool() -> None:
             "parameters": EchoArguments.model_json_schema(),
         },
     }
+
+
+def test_model_request_adds_instructions_before_conversation() -> None:
+    user_message = Message(
+        role=MessageRole.USER,
+        content="Fix the failing test.",
+    )
+    request = ModelRequest(
+        conversation=(user_message,),
+        instructions=(("# Loaded Skills\n\nRun the smallest failing test first."),),
+    )
+
+    messages = model_request_to_openai_messages(request)
+
+    assert messages == [
+        {
+            "role": "system",
+            "content": ("# Loaded Skills\n\nRun the smallest failing test first."),
+        },
+        {
+            "role": "user",
+            "content": "Fix the failing test.",
+        },
+    ]
+    assert request.conversation == (user_message,)
 
 
 def test_conversation_converts_plain_messages() -> None:

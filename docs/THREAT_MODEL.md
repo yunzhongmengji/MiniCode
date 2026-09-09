@@ -1,6 +1,6 @@
 # MiniCode 威胁模型
 
-状态：M6 已复审；每次新增 Tool、Memory 或 Agent 能力时继续复审
+状态：M7 已复审；每次新增 Tool、Memory 或 Agent 能力时继续复审
 
 ## 1. 需要保护的资产
 
@@ -88,6 +88,8 @@ OS Sandbox / Container：最终隔离边界
 - RunTestsTool 只构造固定 pytest argv，拒绝以 `-` 开头的路径参数；AsyncioProcessRunner 不调用 shell，并在超时时终止和回收直接子进程。
 - QueryLoop 与 Dispatcher 共享结构化 Event Ledger，记录模型、策略、审批、工具、checkpoint 和最终状态的连续顺序。
 - 工具输出可保存为内容寻址 Artifact，事件只携带引用元数据；每个 ToolResult 后保存 checkpoint，恢复时只补执行 pending 调用。
+- Skill 启动发现只读取轻量 Manifest；正文在路由后按需加载，每份入口限制在独立 Skill Workspace 和 byte 上限内。
+- Skill 指令与真实 conversation 分离，并且不能绕过 Dispatcher、Policy、Approval 或 Workspace 获取执行权限。
 
 仍然存在的限制：
 
@@ -98,5 +100,6 @@ OS Sandbox / Container：最终隔离边界
 - 超时只直接终止 pytest 进程，尚未建立独立进程组来保证其所有后代进程同时退出。
 - Event、Artifact 和 Checkpoint 当前仅存内存，尚未实现持久化、秘密脱敏、访问控制和崩溃一致性。
 - 当前只开放固定 pytest 命令，不支持任意 Shell；应用层 argv 和路径规则不能替代 OS 级隔离。
+- 本地 Skill 没有签名或来源验证，正文仍可能包含 Prompt Injection；关键词路由和延迟加载只能减少暴露面，不能把 Skill 变成可信输入。
 
 M12 才引入容器或同等级隔离并完成系统化红队。在此之前，仅开放精简、结构化、受测试的 Coding Tools。

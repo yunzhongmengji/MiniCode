@@ -1,6 +1,6 @@
 # 学习与实现路线
 
-状态：M0、M1、M2、M3、M4、M5 已完成
+状态：M0 至 M7 已完成
 节奏：按掌握程度推进，而不是机械追赶周数
 
 ## 1. 教学策略
@@ -82,15 +82,17 @@
 
 ## 5. 当前进度与下一步
 
-M6 Event Ledger 工程完成记录：
+M7 Skill System 工程完成记录：
 
-1. 已完成：定义 Provider 无关的 LedgerEvent、稳定 EventKind、连续 sequence 和递归不可变 JSON payload。
-2. 已完成：QueryLoop 与 ToolDispatcher 共享 EventLedger，记录运行、模型、策略、审批、工具、checkpoint 和最终状态。
-3. 已完成：使用内容寻址 ArtifactStore 保存成功及预期失败的工具输出，事件只携带引用元数据。
-4. 已完成：在每个 ToolResult 加入历史后保存 RunCheckpoint，并验证 ToolCall/ToolResult 关联和已用预算一致性。
-5. 已完成：QueryLoop.resume() 只补执行 pending 工具，延续原有回合与工具预算，并与普通运行共享超时和结束事件边界。
-6. 已完成：RunReplay 验证单 run、连续 sequence 和起始边界，从完整或未完成事件流生成只读摘要。
-7. 已完成：用真实 ReadFileTool 连接 Dispatcher、Artifact、Checkpoint、Event Ledger 和 Replay；独立完成失败工具调用回放变式并修复 payload 筛选、顺序和类型收窄问题。
-8. 已完成：通过 M6 数据流、存储边界、恢复语义、崩溃窗口和错误观察的学习门禁；全项目 405 个测试以及 Ruff、mypy、格式和 diff 门禁通过。
+1. 已完成：定义不可变 SkillManifest 和稳定有序、拒绝重复名称的 SkillCatalog。
+2. 已完成：实现关键词召回、按共享词数量排序、稳定同分顺序和 `max_skills` 截断。
+3. 已完成：从本地 `manifest.json` 自动发现 Skill，并要求 Manifest 名称与目录一致。
+4. 已完成：使用独立 Workspace 和 byte 上限延迟加载被选中的 `SKILL.md`，未选中正文不会读取。
+5. 已完成：SkillContextBuilder 组合指令；QueryLoop 根据最近用户消息构建一次并在多轮模型调用中复用。
+6. 已完成：`ModelRequest.instructions` 与真实 conversation 分离，并由 OpenAI Compatible Adapter 转成前置 system messages。
+7. 已完成：记录 Skill 选择、加载开始以及成功、失败或取消事件，并保持异常和取消语义。
+8. 已完成：建立包含正例、负例、准确率和失败诊断的确定性路由评估；完整磁盘集成测试证明按需加载。
 
-下一阶段是 M7 Skill System：定义 Skill Manifest 与 Catalog，建立可评测的候选召回、精排和按需加载流程。
+9. 已完成：通过 M7 数据流、延迟加载、上下文分离、工具权限边界和路由评估的学习门禁；全项目 427 个测试以及 Ruff、mypy、格式和 diff 门禁通过。
+
+下一阶段是 M8 Memory：建立带证据和作用域的记忆提炼、去重、过期与删除流程。

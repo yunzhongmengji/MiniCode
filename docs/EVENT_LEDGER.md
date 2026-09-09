@@ -92,6 +92,9 @@ LedgerEvent(
 |---|---|
 | `RUN_STARTED` | 一次新运行开始 |
 | `RUN_RESUMED` | 从 checkpoint 开始恢复 |
+| `SKILL_SELECTION_FINISHED` | 完成候选选择并记录 Skill 名称与分数 |
+| `SKILL_LOAD_STARTED` | 开始读取一份已选 Skill 正文 |
+| `SKILL_LOAD_FINISHED` | Skill 加载成功、失败或取消 |
 | `MODEL_CALL_STARTED` | 发起一次模型调用 |
 | `MODEL_CALL_FINISHED` | 模型调用成功、失败或取消 |
 | `TOOL_POLICY_DECIDED` | Policy 返回 Allow、Ask 或 Deny |
@@ -111,6 +114,7 @@ LedgerEvent(
 |---|---|
 | `TOOL_POLICY_DECIDED` | `allow`、`ask`、`deny` |
 | `MODEL_CALL_FINISHED` | `succeeded`、`failed`、`cancelled` |
+| `SKILL_LOAD_FINISHED` | `succeeded`、`failed`、`cancelled` |
 | `TOOL_EXECUTION_FINISHED` | `succeeded`、`failed`、`cancelled` |
 | `RUN_FINISHED` | `succeeded`、`failed`、`cancelled`、`timed_out` |
 

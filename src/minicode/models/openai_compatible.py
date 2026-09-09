@@ -246,6 +246,23 @@ def conversation_to_openai_messages(
     return messages
 
 
+def model_request_to_openai_messages(
+    request: ModelRequest,
+) -> list[ChatCompletionMessageParam]:
+    """Convert one complete request into OpenAI messages."""
+    messages: list[ChatCompletionMessageParam] = [
+        {
+            "role": "system",
+            "content": instruction,
+        }
+        for instruction in request.instructions
+    ]
+
+    messages.extend(conversation_to_openai_messages(request.conversation))
+
+    return messages
+
+
 def openai_completion_to_model_response(
     completion: ChatCompletion,
 ) -> ModelResponse:
@@ -435,7 +452,7 @@ class OpenAICompatibleModel:
         request: ModelRequest,
     ) -> ModelResponse:
         """Complete a normalized MiniCode model request."""
-        messages = conversation_to_openai_messages(request.conversation)
+        messages = model_request_to_openai_messages(request)
         tools = [
             tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
         ]

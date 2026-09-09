@@ -72,6 +72,9 @@ class EventKind(StrEnum):
 
     RUN_STARTED = "run_started"
     RUN_RESUMED = "run_resumed"
+    SKILL_SELECTION_FINISHED = "skill_selection_finished"
+    SKILL_LOAD_STARTED = "skill_load_started"
+    SKILL_LOAD_FINISHED = "skill_load_finished"
     MODEL_CALL_STARTED = "model_call_started"
     MODEL_CALL_FINISHED = "model_call_finished"
     TOOL_POLICY_DECIDED = "tool_policy_decided"

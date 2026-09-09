@@ -90,6 +90,7 @@
 | 2026-09-04 | M4 Model Adapter 学习门禁 | 通过 | 能讲回 ModelRequest 到 ToolCall/ToolResult 再到下一轮的数据流；能解释流式 stop 与整个流结束的区别、usage chunk、超时内部取消与对外 TimeoutError，以及无效工具 JSON 的协议错误链 |
 | 2026-09-07 | M5 Safety Coding Tools | 通过 | 实现 search/edit/test、Policy 与 Approval；能解释执行前短路、路径与参数注入、精确替换、进程超时清理及分层错误翻译；362 个测试和静态门禁通过 |
 | 2026-09-09 | M6 Event Ledger | 通过 | 实现 Event、Artifact、Checkpoint、Resume 与 Replay；完成失败工具调用回放变式；能解释恢复、审计和崩溃一致性边界；最终工程门禁见本阶段复盘 |
+| 2026-09-09 | M7 Skill System | 通过 | 实现 Manifest、Catalog、关键词召回与排序、磁盘发现、延迟加载、QueryLoop 指令注入、Skill 事件和路由评估；完成数据流与权限边界讲回 |
 
 ## 2026-08-22 / M2 / 最小 Query Loop 复盘
 
@@ -147,5 +148,17 @@
 - 变式练习结果：为 RunReplay 增加按事件顺序返回失败工具 call ID 的属性；测试同时放入 succeeded、failed 和 cancelled 结果，发现并修复了读取错误 payload key、set 破坏顺序和 JsonValue 未收窄三个问题。
 - 掌握证据：能不看代码说明 Event 记录事实、Artifact 保存输出、Checkpoint 保存恢复状态；能解释共享 Ledger 的全局顺序、逐 ToolResult checkpoint 的 I/O 取舍、恢复预算延续，以及“副作用已完成但记录未持久化”的重复执行窗口。
 - 当前测试证据：全项目 405 个 pytest 用例通过；93 个文件通过 Ruff lint 与格式门禁，39 个源文件通过 mypy，`git diff --check` 通过。
+- 下一次复习日期：2026-09-16。
+- 是否通过学习门禁：通过。
+
+## 2026-09-09 / M7 / Skill System 复盘
+
+- 已实现的数据流：磁盘 Manifest → Catalog → 关键词召回与排序 → Router 截断 → Loader 按需读取 `SKILL.md` → SkillContextBuilder 渲染 → QueryLoop 写入 `ModelRequest.instructions`。
+- 已落实的设计取舍：Manifest 与正文分离；召回与排序分离；同分保持 Catalog 顺序；Skill 指令与 conversation 分离；一次运行只构建一次并跨模型轮次复用。
+- 已覆盖的关键边界：重复 Skill 名称、入口跨 Skill 逃逸、单文件 byte 上限、未选中正文不读取、加载失败与取消事件、无关请求不选择 Skill。
+- 评估证据：固定案例同时包含 pytest、文档、安全正例和无关天气负例；报告提供精确匹配率及具体失败案例。
+- 当前限制：关键词路由不理解同义词和跨语言语义；Manifest 尚无 schema version；没有远程来源验证或 Skill 总 Token 预算。
+- 掌握证据：能完整说明 Manifest → Catalog → Retriever → Ranker → Router → Loader → SkillContext → ModelRequest 数据流；能解释延迟加载、instructions 与 conversation 分离、每次运行只路由一次，以及 Skill 不能绕过 Tool Policy 和 Workspace。
+- 当前测试证据：全项目 427 个 pytest 用例通过；113 个文件通过 Ruff lint 与格式门禁，48 个源文件通过 mypy，`git diff --check` 通过。
 - 下一次复习日期：2026-09-16。
 - 是否通过学习门禁：通过。

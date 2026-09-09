@@ -1,6 +1,6 @@
 # MiniCode Query Loop
 
-状态：M2 基础循环已实现；M3 接入 Tool Runtime，M4 接入真实 Model Adapter 和总时限，M6 接入 Event Ledger 与 Checkpoint 恢复
+状态：M2 基础循环已实现；M3 接入 Tool Runtime，M4 接入真实 Model Adapter 和总时限，M6 接入 Event Ledger 与 Checkpoint 恢复，M7 接入按需 Skill Context
 
 ## 1. 目标
 
@@ -11,7 +11,7 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
 - Model
   - Provider 无关的模型调用协议，接收 `ModelRequest` 并返回 `ModelResponse`。
 - ModelRequest
-  - 包含当前结构化历史和稳定有序的 `ToolSpec` 快照。
+  - 包含当前结构化历史、稳定有序的 `ToolSpec` 快照和与历史分离的附加 instructions。
 - ModelResponse
   - 模型一次响应的统一格式，包含文本、零个或多个 `ToolCall` 以及可选 Token 用量。
 - ConversationItem
@@ -34,16 +34,19 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
   - 在每个 ToolResult 加入历史后保存可恢复状态；QueryLoop 可从最新状态补完 pending 工具。
 - RunReplay
   - 只读解释 LedgerEvent，生成运行摘要，不重新执行模型或工具。
+- SkillContextProvider
+  - 根据最近用户消息选择并加载 Skill，为本次运行生成附加模型指令。
 
 ## 3. 一次运行的数据流
 
 1. `run()` 记录 RUN_STARTED，再进入 `asyncio.timeout(total_timeout_seconds)` 管理的整次运行边界；`None` 表示不设截止时间。
-2. Query Loop 从当前历史和 `tool_specs` 创建不可变 `ModelRequest`，再调用 `Model.complete()`。
-3. 模型返回不含 `ToolCall` 的文本时，Query Loop 返回 `StopReason.COMPLETED` 的 `RunResult`。
-4. 模型返回 `ToolCall` 时，Query Loop 依次检查是否配置 ToolRuntime、是否到达模型轮次上限，以及整批调用是否超过工具预算。
-5. 检查通过后，Query Loop 先按顺序写入整批 `ToolCall`，再调用 ToolRuntime 并写入对应 `ToolResult`；每个结果写入后立即保存 checkpoint。
-6. 更新后的历史进入下一轮 `ModelRequest`，直到完成、预算停止、总超时或异常中断。
-7. 正常停止时记录 RUN_FINISHED 并返回 `RunResult`；超时、取消或异常中断时先记录对应 outcome，再保留原始控制流，不构造伪造的最终响应。
+2. 配置 SkillContextProvider 时，Query Loop 从历史中提取最近的用户消息，选择并加载一次 Skill Context。
+3. Query Loop 从当前历史、`tool_specs` 和本次运行复用的 Skill instructions 创建不可变 `ModelRequest`，再调用 `Model.complete()`。
+4. 模型返回不含 `ToolCall` 的文本时，Query Loop 返回 `StopReason.COMPLETED` 的 `RunResult`。
+5. 模型返回 `ToolCall` 时，Query Loop 依次检查是否配置 ToolRuntime、是否到达模型轮次上限，以及整批调用是否超过工具预算。
+6. 检查通过后，Query Loop 先按顺序写入整批 `ToolCall`，再调用 ToolRuntime 并写入对应 `ToolResult`；每个结果写入后立即保存 checkpoint。
+7. 更新后的历史进入下一轮 `ModelRequest`，直到完成、预算停止、总超时或异常中断；Skill instructions 不因工具输出而重新路由。
+8. 正常停止时记录 RUN_FINISHED 并返回 `RunResult`；超时、取消或异常中断时先记录对应 outcome，再保留原始控制流，不构造伪造的最终响应。
 
 `resume(checkpoint)` 使用同一运行边界，但从 checkpoint 中保存的回合、工具计数和历史继续。它只执行没有匹配 ToolResult 的 pending ToolCall，再进入下一模型回合。
 
@@ -104,4 +107,5 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
 - Query Loop 当前使用 `Model.complete()`；Model Adapter 虽已支持流式事件，但尚未接入 Query Loop 的实时消费路径或 CLI/UI。
 - `asyncio.timeout()` 是协作式取消边界；如果某段同步代码长时间不交还事件循环，超时不能在其执行中途强制中断它。
 - M6 已提供内存 Event、Artifact、Checkpoint 和 Replay；尚无跨进程持久后端、事件状态机验证或崩溃时外部副作用的事务保证。
+- M7 的 Skill 路由使用关键词基线，只在一次运行开始时选择和加载；尚无语义召回、版本解析或组合 Token 预算。
 - Event Ledger 只提供观察和恢复证据；应用层路径与 argv 规则仍不能提供宿主机级隔离。

@@ -11,8 +11,8 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - 中心化多 Agent 调度与最小权限
 - 可执行 Benchmark、故障注入和安全红队
 
-当前状态：M6 Event Ledger 工程实现与学习门禁均已完成；系统能够按统一顺序记录模型、策略、审批、工具、checkpoint 和最终状态事件，将工具输出保存为 Artifact，并从 checkpoint 补完 pending 工具后继续执行。
-下一阶段是 M7 Skill System，将实现 Manifest、Catalog、候选召回、精排和按需加载边界。
+当前状态：M7 Skill System 工程实现与学习门禁均已完成；系统能够从本地 Manifest 自动发现 Skill，按用户任务召回和排序，只加载被选中的正文，并通过独立模型指令接入 Query Loop。路由正例、负例和完整磁盘集成链路均可离线评估。
+下一阶段是 M8 Memory。
 
 ## 项目证据
 
@@ -26,6 +26,7 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - [安全 Coding Tools 设计](docs/SAFETY_TOOLS.md)
 - [Model Adapter 设计](docs/MODEL_ADAPTER.md)
 - [Event Ledger、Artifact、Checkpoint 与 Replay 设计](docs/EVENT_LEDGER.md)
+- [Skill System 设计](docs/SKILL_SYSTEM.md)
 - [学习日志](docs/LEARNING_LOG.md)
 - [中文学习笔记](docs/learning/README.md)
 - [架构决策记录](docs/adr/)

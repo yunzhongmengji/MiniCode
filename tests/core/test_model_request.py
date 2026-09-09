@@ -11,6 +11,9 @@ class ReadFileArguments(ToolArguments):
 
 
 def test_model_request_snapshots_conversation_and_tool_specs() -> None:
+    original_instructions = [
+        "Run the smallest failing test first.",
+    ]
     message = Message(
         role=MessageRole.USER,
         content="Read README.md",
@@ -27,13 +30,16 @@ def test_model_request_snapshots_conversation_and_tool_specs() -> None:
     request = ModelRequest(
         conversation=original_conversation,
         tool_specs=original_tool_specs,
+        instructions=original_instructions,
     )
 
     original_conversation.clear()
     original_tool_specs.clear()
+    original_instructions.clear()
 
     assert request.conversation == (message,)
     assert request.tool_specs == (tool_spec,)
+    assert request.instructions == ("Run the smallest failing test first.",)
 
 
 @pytest.mark.parametrize(

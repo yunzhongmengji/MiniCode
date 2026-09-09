@@ -20,3 +20,4 @@ ADR 用于记录对系统边界有长期影响的决定。
 - [ADR-0005：分离流式事件、模型调用观测与 Query Loop 总时限](0005-stream-events-observation-and-total-timeout.md)
 - [ADR-0006：集中实施工具策略并使用受限 argv 子进程](0006-centralized-tool-policy-and-bounded-process.md)
 - [ADR-0007：使用追加事件、独立 Artifact 与显式 Checkpoint 恢复](0007-append-only-events-and-explicit-resume.md)
+- [ADR-0008：使用轻量 Skill 路由、延迟加载与独立模型指令](0008-lazy-skill-routing-and-separate-instructions.md)

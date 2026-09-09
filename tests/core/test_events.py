@@ -15,6 +15,7 @@ def test_event_kind_has_stable_values() -> None:
         EventKind.SKILL_SELECTION_FINISHED,
         EventKind.SKILL_LOAD_STARTED,
         EventKind.SKILL_LOAD_FINISHED,
+        EventKind.MEMORY_RETRIEVAL_FINISHED,
         EventKind.MODEL_CALL_STARTED,
         EventKind.MODEL_CALL_FINISHED,
         EventKind.TOOL_POLICY_DECIDED,

@@ -75,6 +75,7 @@ class EventKind(StrEnum):
     SKILL_SELECTION_FINISHED = "skill_selection_finished"
     SKILL_LOAD_STARTED = "skill_load_started"
     SKILL_LOAD_FINISHED = "skill_load_finished"
+    MEMORY_RETRIEVAL_FINISHED = "memory_retrieval_finished"
     MODEL_CALL_STARTED = "model_call_started"
     MODEL_CALL_FINISHED = "model_call_finished"
     TOOL_POLICY_DECIDED = "tool_policy_decided"

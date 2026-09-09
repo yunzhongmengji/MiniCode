@@ -19,6 +19,19 @@ from minicode.core.model import (
 )
 from minicode.core.query_loop import QueryLoop, StopReason
 from minicode.core.tool_calls import ToolCall, ToolResult
+from minicode.memory.context import (
+    MemoryContext,
+)
+from minicode.memory.records import (
+    MemoryEvidence,
+    MemoryEvidenceKind,
+    MemoryRecord,
+    MemoryScope,
+    MemoryScopeKind,
+)
+from minicode.memory.retrieval import (
+    RankedMemory,
+)
 from minicode.models.scripted import ScriptedModel
 from minicode.skills.catalog import (
     SkillCatalog,
@@ -1554,3 +1567,88 @@ async def test_query_loop_records_skill_events_before_model_call() -> None:
             "test first."
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_combines_skill_and_memory_instructions() -> None:
+    skill_context = SkillContext(
+        skills=(
+            LoadedSkill(
+                manifest=SkillManifest(
+                    name="pytest-debugging",
+                    description=("Diagnose pytest failures."),
+                    entrypoint="SKILL.md",
+                ),
+                instructions=("Run the smallest failing test first."),
+            ),
+        ),
+    )
+    scope = MemoryScope(
+        kind=MemoryScopeKind.PROJECT,
+        key="MyCode",
+    )
+    memory_record = MemoryRecord(
+        memory_id="memory_001",
+        content=("Run project tests with .venv/bin/pytest."),
+        scope=scope,
+        evidence=(
+            MemoryEvidence(
+                kind=(MemoryEvidenceKind.WORKSPACE_FILE),
+                reference="README.md",
+                excerpt=(".venv/bin/pytest"),
+            ),
+        ),
+        created_at=100.0,
+    )
+    memory_context = MemoryContext(
+        memories=(
+            RankedMemory(
+                record=memory_record,
+                score=2,
+            ),
+        ),
+    )
+
+    class StaticSkillContextProvider:
+        async def build(
+            self,
+            query: str,
+        ) -> SkillContext:
+            assert query == ("Fix the failing pytest test.")
+
+            return skill_context
+
+    class StaticMemoryContextProvider:
+        async def build(
+            self,
+            query: str,
+        ) -> MemoryContext:
+            assert query == ("Fix the failing pytest test.")
+
+            return memory_context
+
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(
+                content="Test fixed.",
+            ),
+        ),
+    )
+    loop = QueryLoop(
+        model=model,
+        skill_context_provider=(StaticSkillContextProvider()),
+        memory_context_provider=(StaticMemoryContextProvider()),
+    )
+    user_message = Message(
+        role=MessageRole.USER,
+        content=("Fix the failing pytest test."),
+    )
+
+    result = await loop.run((user_message,))
+
+    assert model.requests[0].instructions == (
+        skill_context.render(),
+        memory_context.render(),
+    )
+    assert model.requests[0].conversation == (user_message,)
+    assert result.message_history == (user_message,)

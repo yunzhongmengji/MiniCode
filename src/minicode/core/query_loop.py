@@ -26,6 +26,9 @@ from minicode.core.tool_calls import (
     ToolCall,
 )
 from minicode.core.tool_runtime import ToolRuntime
+from minicode.memory.context import (
+    MemoryContextProvider,
+)
 from minicode.skills.context import (
     SkillContextProvider,
 )
@@ -101,6 +104,7 @@ class QueryLoop:
         event_ledger: EventLedger | None = None,
         checkpoint_store: CheckpointStore | None = None,
         skill_context_provider: (SkillContextProvider | None) = None,
+        memory_context_provider: (MemoryContextProvider | None) = None,
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -161,6 +165,7 @@ class QueryLoop:
         self._event_ledger = event_ledger
         self._checkpoint_store = checkpoint_store
         self._skill_context_provider = skill_context_provider
+        self._memory_context_provider = memory_context_provider
 
     def _record_event(
         self,
@@ -361,28 +366,37 @@ class QueryLoop:
             )
         )
 
-    async def _build_skill_instructions(
+    async def _build_run_instructions(
         self,
         message_history: Sequence[ConversationItem],
     ) -> tuple[str, ...]:
         """Build optional instructions for one run."""
-        provider = self._skill_context_provider
-
-        if provider is None:
-            return ()
-
         query = _latest_user_content(message_history)
 
         if not query:
             return ()
 
-        context = await provider.build(query)
-        rendered = context.render()
+        instructions: list[str] = []
 
-        if not rendered:
-            return ()
+        skill_provider = self._skill_context_provider
 
-        return (rendered,)
+        if skill_provider is not None:
+            skill_context = await skill_provider.build(query)
+            rendered_skill_context = skill_context.render()
+
+            if rendered_skill_context:
+                instructions.append(rendered_skill_context)
+
+        memory_provider = self._memory_context_provider
+
+        if memory_provider is not None:
+            memory_context = await memory_provider.build(query)
+            rendered_memory_context = memory_context.render()
+
+            if rendered_memory_context:
+                instructions.append(rendered_memory_context)
+
+        return tuple(instructions)
 
     async def _run(
         self,
@@ -393,7 +407,7 @@ class QueryLoop:
     ) -> RunResult:
         """Run model turns until completion or a controlled stop."""
         message_history = tuple(messages)
-        instructions = await self._build_skill_instructions(message_history)
+        instructions = await self._build_run_instructions(message_history)
 
         for turn in range(
             first_turn,

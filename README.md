@@ -2,16 +2,23 @@
 
 MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Coding Agent Runtime。
 
-它不是 LangChain Agent 的再次封装，也不以复刻某个闭源产品为目标。项目重点是亲手实现并验证：
+它不是 LangChain Agent 的再次封装，也不以复刻某个闭源产品为目标。
+
+当前主干已经实现并验证：
 
 - Query Loop 与结构化 Tool Calling
 - 受控代码工具、权限策略与人工审批
 - 可回放事件账本、Artifact 与 Checkpoint
-- Skill 路由、自动记忆和分层上下文压缩
-- 中心化多 Agent 调度与最小权限
-- 可执行 Benchmark、故障注入和安全红队
+- Skill Manifest、路由、延迟加载与上下文注入
+- 可执行的真实模型小样本 Benchmark 和结果汇总
 
-当前状态：M0 至 M7 的分层组件已经完成；当前开发分支进一步把 DashScope 模型、Query Loop、安全 Coding Tools、默认 Policy、终端 Approval、Event Ledger 和 Artifact 引用组装成可从 CLI 启动的 Coding Agent 垂直切片。
+Memory、分层上下文压缩、多 Agent 调度、系统化故障注入和容器级安全加固仍是
+后续规划，不属于当前主干能力。
+
+当前状态：M0 至 M7 的分层组件已经完成。DashScope 模型、Query Loop、七个安全
+Coding Tools、默认 Policy、终端 Approval、Event Ledger 和 Artifact 引用已经组装为
+可从 CLI 启动的 Coding Agent MVP。第一批三个固定 Case 均通过确定性验收，但每个
+Case 目前只有一次正式运行，不能据此宣称一般任务成功率为 100%。
 
 ## 快速运行
 

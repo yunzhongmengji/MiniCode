@@ -116,12 +116,15 @@ LangChain-RAG-FastAPI-Service 将作为后期真实任务来源，但只在复�
 额外行为和副作用检查。只读诊断的回答检查使用固定关键词，是可复现的粗粒度规则，
 不等同于完整的自然语言质量评价。
 
-三个 Case 在初始建设阶段分别完成过一次人工 Smoke Run 并通过验收；多文件任务中
-模型没有执行建议性的 `git_diff`，说明 Prompt 行为建议不能作为确定性保证。
+三个 Case 的第一批正式结果保存在
+`benchmarks/coding_agent/results/baseline-9b9fcb6-qwen3.7-flash-2026-07-15/`。
+该批次固定 MiniCode commit 和模型，完整保存回答、Trace 与验收 JSON，三个 Case
+均通过确定性验收。多文件任务没有执行建议性的 `git_diff`，说明 Prompt 行为建议
+不能作为确定性保证。
 
-小样本用于先验证任务格式、工具链和失败记录是否可信，不能据此宣称总体成功率。
-没有同时保存 `answer.txt`、`trace.txt` 和 `result.json` 的运行只算 Smoke Evidence，
-不进入简历指标。
+每个 Case 当前只有一次正式运行，因此 `3/3` 只是该批次的事实，不能据此宣称
+MiniCode 的总体成功率。没有同时保存 `answer.txt`、`trace.txt` 和 `result.json`
+的运行仍然只算 Smoke Evidence，不进入简历指标。
 
 `python -m minicode.evaluation_result` 可以对一次已经结束的运行执行隐藏验收，并在
 同一个结果目录中生成不可覆盖的 `result.json`。记录包含模型名、MiniCode commit、
@@ -131,3 +134,7 @@ Workspace Git 状态，以及原始回答和 Trace 的 SHA-256。回答与 Trace
 
 当前记录器不负责启动模型，因此还不能自动测量端到端耗时或费用；
 `recorded_at_utc` 是记录时间，不是模型运行开始时间。
+
+`python -m minicode.evaluation_summary <results-root>` 会递归读取一个结果批次，输出
+逐 Case 和总体的验收、模型调用、工具执行、Token 与改动数量。它只汇总记录，不会
+重新调用模型或改变单次验收结论。

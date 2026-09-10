@@ -1,0 +1,45 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS multi_file_inventory_contract"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "789e101e77d9d005e8db683678d66c56599c3d57c9c7b919345237d3728b9837"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "81b9904fd7273a7940a5eed7ce83bf52cdda0dfc3eddefe525fa8566efb02632"
+    }
+  },
+  "case_id": "multi_file_inventory_contract",
+  "minicode_commit": "9b9fcb6f96e8fa0d56a1624f38f12bf01e5b0d56",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-10T09:20:07.880033+00:00",
+  "run": {
+    "input_tokens": 8527,
+    "model_call_count": 5,
+    "outcome": "succeeded",
+    "output_tokens": 407,
+    "run_id": "run_cf2456af7b2f4b0a9a91bb38199f6ece",
+    "stop_reason": "completed",
+    "tool_execution_count": 7,
+    "tool_requests": {
+      "edit_file": 2,
+      "list_files": 1,
+      "read_file": 3,
+      "run_tests": 1
+    },
+    "turns_used": 5
+  },
+  "schema_version": 1,
+  "workspace_status": [
+    " M inventory.py",
+    " M report.py"
+  ]
+}

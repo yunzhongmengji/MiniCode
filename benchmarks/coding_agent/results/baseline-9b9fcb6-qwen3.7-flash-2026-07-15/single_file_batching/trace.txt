@@ -1,0 +1,31 @@
+Trace run_8559f7af27c646988146b76c52740f5f
+001 run_started {"initial_history_items": 1, "max_tool_calls": 8, "max_turns": 8, "total_timeout_seconds": null}
+002 model_call_started {"turn": 1}
+003 model_call_finished {"input_tokens": 1318, "outcome": "succeeded", "output_tokens": 55, "tool_call_count": 2, "turn": 1}
+004 tool_policy_decided {"call_id": "call_dbcdf9451d6341a98b9f79fc", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+005 tool_execution_started {"call_id": "call_dbcdf9451d6341a98b9f79fc", "tool_name": "read_file"}
+006 tool_execution_finished {"call_id": "call_dbcdf9451d6341a98b9f79fc", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:b234401ea3f3bc696863d6b539338b1e228f07ad45690df444024172f5607857", "byte_count": 467, "media_type": "text/plain"}, "tool_name": "read_file"}
+007 tool_policy_decided {"call_id": "call_7266a77d6053427f8fc62662", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+008 tool_execution_started {"call_id": "call_7266a77d6053427f8fc62662", "tool_name": "read_file"}
+009 tool_execution_finished {"call_id": "call_7266a77d6053427f8fc62662", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:d74b17a676b95a02e60a268ff9ec1d3a959aa64d232f450ca0f1fcda0ca5a14d", "byte_count": 518, "media_type": "text/plain"}, "tool_name": "read_file"}
+010 model_call_started {"turn": 2}
+011 model_call_finished {"input_tokens": 1666, "outcome": "succeeded", "output_tokens": 29, "tool_call_count": 1, "turn": 2}
+012 tool_policy_decided {"call_id": "call_074d69e37b9542b59e59cc89", "outcome": "ask", "reason": "running tests requires approval", "tool_name": "run_tests"}
+013 tool_approval_resolved {"approved": true, "call_id": "call_074d69e37b9542b59e59cc89", "tool_name": "run_tests"}
+014 tool_execution_started {"call_id": "call_074d69e37b9542b59e59cc89", "tool_name": "run_tests"}
+015 tool_execution_finished {"call_id": "call_074d69e37b9542b59e59cc89", "error_type": "ToolExecutionError", "outcome": "failed", "output_artifact": {"artifact_id": "sha256:6622e0c179f104c05b12b5ccc1b5ae539d7cdc331ac00b3bec1b02c2df743b0d", "byte_count": 932, "media_type": "text/plain"}, "tool_name": "run_tests"}
+016 model_call_started {"turn": 3}
+017 model_call_finished {"input_tokens": 1964, "outcome": "succeeded", "output_tokens": 90, "tool_call_count": 1, "turn": 3}
+018 tool_policy_decided {"call_id": "call_53ee2b2d97c546a0b2c18c1c", "outcome": "ask", "reason": "workspace changes require approval", "tool_name": "edit_file"}
+019 tool_approval_resolved {"approved": true, "call_id": "call_53ee2b2d97c546a0b2c18c1c", "tool_name": "edit_file"}
+020 tool_execution_started {"call_id": "call_53ee2b2d97c546a0b2c18c1c", "tool_name": "edit_file"}
+021 tool_execution_finished {"call_id": "call_53ee2b2d97c546a0b2c18c1c", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:f49f831b190af12cbcbc4bb017c1699761cc3e08c2c6407b3dab902ad72b0937", "byte_count": 20, "media_type": "text/plain"}, "tool_name": "edit_file"}
+022 model_call_started {"turn": 4}
+023 model_call_finished {"input_tokens": 2076, "outcome": "succeeded", "output_tokens": 29, "tool_call_count": 1, "turn": 4}
+024 tool_policy_decided {"call_id": "call_6ab3e880ea8343b18ece52b1", "outcome": "ask", "reason": "running tests requires approval", "tool_name": "run_tests"}
+025 tool_approval_resolved {"approved": true, "call_id": "call_6ab3e880ea8343b18ece52b1", "tool_name": "run_tests"}
+026 tool_execution_started {"call_id": "call_6ab3e880ea8343b18ece52b1", "tool_name": "run_tests"}
+027 tool_execution_finished {"call_id": "call_6ab3e880ea8343b18ece52b1", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:079b8fa8e42aa40cea821bdd925caa10b887b1b5d51f6a0d164b49bc539ac5d5", "byte_count": 97, "media_type": "text/plain"}, "tool_name": "run_tests"}
+028 model_call_started {"turn": 5}
+029 model_call_finished {"input_tokens": 2141, "outcome": "succeeded", "output_tokens": 91, "tool_call_count": 0, "turn": 5}
+030 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 5}

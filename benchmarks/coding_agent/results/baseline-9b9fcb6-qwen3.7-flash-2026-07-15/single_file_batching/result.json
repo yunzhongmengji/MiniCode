@@ -1,0 +1,43 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS single_file_batching"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "85ade8a9a07bf6d871e07ec723ffe78971e33592eabb848e51230df186158a13"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "23e923bbd79b31d10e101a82e7b3e4f793a1a2c8e16fc845028b58f90903b91b"
+    }
+  },
+  "case_id": "single_file_batching",
+  "minicode_commit": "9b9fcb6f96e8fa0d56a1624f38f12bf01e5b0d56",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-10T09:10:00.588486+00:00",
+  "run": {
+    "input_tokens": 9165,
+    "model_call_count": 5,
+    "outcome": "succeeded",
+    "output_tokens": 294,
+    "run_id": "run_8559f7af27c646988146b76c52740f5f",
+    "stop_reason": "completed",
+    "tool_execution_count": 5,
+    "tool_requests": {
+      "edit_file": 1,
+      "read_file": 2,
+      "run_tests": 2
+    },
+    "turns_used": 5
+  },
+  "schema_version": 1,
+  "workspace_status": [
+    " M batching.py"
+  ]
+}

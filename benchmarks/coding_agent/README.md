@@ -72,3 +72,20 @@ PASS <case_name>: /tmp/.../result.json
 `result.json` 不重复保存回答或 Trace 正文，而是记录文件名和 SHA-256。请将
 `answer.txt`、`trace.txt` 和 `result.json` 作为同一个原始结果目录保留。记录器使用
 排他创建模式；如果 `result.json` 已存在，会拒绝覆盖历史记录。
+
+## 保存和汇总结果
+
+经过验收的原始结果按批次保存在 `results/`。每个 Case 的 `answer.txt`、
+`trace.txt` 和 `result.json` 必须一起保留；JSON 中的 SHA-256 用于确认前两个文件
+仍是记录时的原始内容。
+
+汇总器递归读取一个批次中的 `result.json`，只聚合已记录事实，不会再次调用模型或
+修改验收结论：
+
+```bash
+.venv/bin/python -m minicode.evaluation_summary \
+  benchmarks/coding_agent/results/baseline-9b9fcb6-qwen3.7-flash-2026-07-15
+```
+
+当前基线每个 Case 只有一次正式运行，因此汇总中的 `3/3` 只能描述这个小样本批次，
+不能表述为 MiniCode 的一般任务成功率。

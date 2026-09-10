@@ -1,0 +1,37 @@
+Trace run_cf2456af7b2f4b0a9a91bb38199f6ece
+001 run_started {"initial_history_items": 1, "max_tool_calls": 8, "max_turns": 8, "total_timeout_seconds": null}
+002 model_call_started {"turn": 1}
+003 model_call_finished {"input_tokens": 1326, "outcome": "succeeded", "output_tokens": 24, "tool_call_count": 1, "turn": 1}
+004 tool_policy_decided {"call_id": "call_401467283f394c889b72c398", "outcome": "allow", "reason": "workspace file discovery is allowed", "tool_name": "list_files"}
+005 tool_execution_started {"call_id": "call_401467283f394c889b72c398", "tool_name": "list_files"}
+006 tool_execution_finished {"call_id": "call_401467283f394c889b72c398", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:4a22ab24362aa730b582d8dc09c396b99468ed6d2af8a33cf6e2de04083eff6b", "byte_count": 83, "media_type": "text/plain"}, "tool_name": "list_files"}
+007 model_call_started {"turn": 2}
+008 model_call_finished {"input_tokens": 1387, "outcome": "succeeded", "output_tokens": 80, "tool_call_count": 3, "turn": 2}
+009 tool_policy_decided {"call_id": "call_ed2b84458338405a93a01e25", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+010 tool_execution_started {"call_id": "call_ed2b84458338405a93a01e25", "tool_name": "read_file"}
+011 tool_execution_finished {"call_id": "call_ed2b84458338405a93a01e25", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:f3c2d48bf28800e18d04b5e230a21809c2b92a1cfbc5612121640fa6c15c3e45", "byte_count": 294, "media_type": "text/plain"}, "tool_name": "read_file"}
+012 tool_policy_decided {"call_id": "call_f489e0a6ec8c43e5824d2c0f", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+013 tool_execution_started {"call_id": "call_f489e0a6ec8c43e5824d2c0f", "tool_name": "read_file"}
+014 tool_execution_finished {"call_id": "call_f489e0a6ec8c43e5824d2c0f", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:801f03df68923f990d2bd5925161496b56c0517840bb44aac05765e849b557ce", "byte_count": 292, "media_type": "text/plain"}, "tool_name": "read_file"}
+015 tool_policy_decided {"call_id": "call_9001c257a6de48d69db28b65", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+016 tool_execution_started {"call_id": "call_9001c257a6de48d69db28b65", "tool_name": "read_file"}
+017 tool_execution_finished {"call_id": "call_9001c257a6de48d69db28b65", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:d5a298b4ea6a13bc58e85228dfbcfe5cd9359a758173ab2531749c2ad17729b7", "byte_count": 531, "media_type": "text/plain"}, "tool_name": "read_file"}
+018 model_call_started {"turn": 3}
+019 model_call_finished {"input_tokens": 1765, "outcome": "succeeded", "output_tokens": 200, "tool_call_count": 2, "turn": 3}
+020 tool_policy_decided {"call_id": "call_436aedbaf55c4579943009ee", "outcome": "ask", "reason": "workspace changes require approval", "tool_name": "edit_file"}
+021 tool_approval_resolved {"approved": true, "call_id": "call_436aedbaf55c4579943009ee", "tool_name": "edit_file"}
+022 tool_execution_started {"call_id": "call_436aedbaf55c4579943009ee", "tool_name": "edit_file"}
+023 tool_execution_finished {"call_id": "call_436aedbaf55c4579943009ee", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:807ba4f0ab0e787ed2c52a7751461e10e17b2dda3e80b513094b8324aa765dc0", "byte_count": 21, "media_type": "text/plain"}, "tool_name": "edit_file"}
+024 tool_policy_decided {"call_id": "call_d853bb15ec8541c8bc3a0dcf", "outcome": "ask", "reason": "workspace changes require approval", "tool_name": "edit_file"}
+025 tool_approval_resolved {"approved": true, "call_id": "call_d853bb15ec8541c8bc3a0dcf", "tool_name": "edit_file"}
+026 tool_execution_started {"call_id": "call_d853bb15ec8541c8bc3a0dcf", "tool_name": "edit_file"}
+027 tool_execution_finished {"call_id": "call_d853bb15ec8541c8bc3a0dcf", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:17a25c541edd5d3d388c446ace6539728be2c4d4bb46f5061a874f141f8385ec", "byte_count": 18, "media_type": "text/plain"}, "tool_name": "edit_file"}
+028 model_call_started {"turn": 4}
+029 model_call_finished {"input_tokens": 1992, "outcome": "succeeded", "output_tokens": 29, "tool_call_count": 1, "turn": 4}
+030 tool_policy_decided {"call_id": "call_95b5d6af4fe744ca9876bbd2", "outcome": "ask", "reason": "running tests requires approval", "tool_name": "run_tests"}
+031 tool_approval_resolved {"approved": true, "call_id": "call_95b5d6af4fe744ca9876bbd2", "tool_name": "run_tests"}
+032 tool_execution_started {"call_id": "call_95b5d6af4fe744ca9876bbd2", "tool_name": "run_tests"}
+033 tool_execution_finished {"call_id": "call_95b5d6af4fe744ca9876bbd2", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:2a65b3e70e6bfbb4eb9b9ffb91f4dcd6383e685bd1546efd5b451c200a907c28", "byte_count": 97, "media_type": "text/plain"}, "tool_name": "run_tests"}
+034 model_call_started {"turn": 5}
+035 model_call_finished {"input_tokens": 2057, "outcome": "succeeded", "output_tokens": 74, "tool_call_count": 0, "turn": 5}
+036 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 5}

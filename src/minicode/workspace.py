@@ -133,6 +133,32 @@ class Workspace:
                 file_path,
             )
 
+    def create_text(
+        self,
+        relative_path: str,
+        content: str,
+    ) -> None:
+        """Atomically create a UTF-8 file without overwriting an existing path."""
+        if not isinstance(content, str):
+            raise TypeError("content must be a string")
+
+        file_path = self._resolve(relative_path)
+
+        with tempfile.TemporaryDirectory(
+            dir=file_path.parent,
+            prefix=f".{file_path.name}.",
+        ) as temporary_directory:
+            temporary_path = Path(temporary_directory) / file_path.name
+            temporary_path.write_text(
+                content,
+                encoding="utf-8",
+            )
+
+            os.link(
+                temporary_path,
+                file_path,
+            )
+
     def list_files(
         self,
         relative_path: str,

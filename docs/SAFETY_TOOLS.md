@@ -49,6 +49,7 @@ Dispatcher 先进行工具专属 Schema 验证，再调用 Policy。这样非法
 | 工具 | 行为 | 主要限制 |
 |---|---|---|
 | `search_text` | 在文件或目录中进行 literal substring search | Workspace 路径、稳定文件顺序、文件数、单文件 bytes、结果数 |
+| `create_file` | 创建一个不存在的 UTF-8 文本文件 | Workspace 路径、完整内容 bytes、目标必须不存在、原子创建 |
 | `edit_file` | 将一个唯一的 `old_text` 精确替换为 `new_text` | Workspace 路径、UTF-8、源文件/完整结果 bytes、必须恰好匹配一次 |
 | `run_tests` | 对一个工作区文件或目录运行固定 pytest 命令 | Workspace 路径、拒绝 `-` 开头参数、固定 argv、正数超时 |
 

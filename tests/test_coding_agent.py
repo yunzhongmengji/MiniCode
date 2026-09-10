@@ -37,6 +37,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
             "list_files",
             "read_file",
             "search_text",
+            "create_file",
             "edit_file",
             "run_tests",
             "unknown_tool",
@@ -47,6 +48,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
         "list_files": PolicyOutcome.ALLOW,
         "read_file": PolicyOutcome.ALLOW,
         "search_text": PolicyOutcome.ALLOW,
+        "create_file": PolicyOutcome.ASK,
         "edit_file": PolicyOutcome.ASK,
         "run_tests": PolicyOutcome.ASK,
         "unknown_tool": PolicyOutcome.DENY,
@@ -131,6 +133,7 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
         "list_files",
         "read_file",
         "search_text",
+        "create_file",
         "edit_file",
         "run_tests",
     )

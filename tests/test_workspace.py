@@ -257,3 +257,54 @@ def test_workspace_write_text_preserves_original_when_replace_fails(
         )
         == "original content"
     )
+
+
+def test_workspace_create_text_preserves_existing_file(
+    tmp_path: Path,
+) -> None:
+    file_path = tmp_path / "example.txt"
+    file_path.write_text(
+        "original content",
+        encoding="utf-8",
+    )
+    workspace = Workspace(root=tmp_path)
+
+    with pytest.raises(FileExistsError):
+        workspace.create_text(
+            "example.txt",
+            "replacement content",
+        )
+
+    assert file_path.read_text(encoding="utf-8") == "original content"
+
+
+def test_workspace_create_text_leaves_no_target_when_link_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    file_path = tmp_path / "example.txt"
+    workspace = Workspace(root=tmp_path)
+
+    def fail_link(
+        source: str | bytes | os.PathLike[str],
+        destination: str | bytes | os.PathLike[str],
+    ) -> None:
+        del source, destination
+        raise OSError("simulated link failure")
+
+    monkeypatch.setattr(
+        os,
+        "link",
+        fail_link,
+    )
+
+    with pytest.raises(
+        OSError,
+        match="simulated link failure",
+    ):
+        workspace.create_text(
+            "example.txt",
+            "new content",
+        )
+
+    assert not file_path.exists()

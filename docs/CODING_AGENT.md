@@ -35,6 +35,7 @@ CLI task
 
 | 工具 | 作用 | 默认 Policy | 强制边界 |
 |---|---|---|---|
+| `list_files` | 发现工作区文件结构 | `ALLOW` | Workspace 路径、常见生成目录剪枝和文件数量上限 |
 | `read_file` | 读取一个 UTF-8 文件 | `ALLOW` | Workspace 路径和 byte 上限 |
 | `search_text` | 搜索文件或目录 | `ALLOW` | Workspace、文件数、文件大小和结果数上限 |
 | `edit_file` | 唯一精确替换 | `ASK` | Workspace、源文件和结果大小、原子写入 |

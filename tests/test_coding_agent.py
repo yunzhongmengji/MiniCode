@@ -34,6 +34,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
             )
         ).outcome
         for tool_name in (
+            "list_files",
             "read_file",
             "search_text",
             "edit_file",
@@ -43,6 +44,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
     }
 
     assert outcomes == {
+        "list_files": PolicyOutcome.ALLOW,
         "read_file": PolicyOutcome.ALLOW,
         "search_text": PolicyOutcome.ALLOW,
         "edit_file": PolicyOutcome.ASK,
@@ -126,6 +128,7 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
     result = await agent.run("Inspect README.md.")
 
     assert tuple(spec.name for spec in model.requests[0].tool_specs) == (
+        "list_files",
         "read_file",
         "search_text",
         "edit_file",

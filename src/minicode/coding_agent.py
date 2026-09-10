@@ -14,6 +14,7 @@ from minicode.core.tool_policy import (
 )
 from minicode.tools.dispatcher import ToolDispatcher
 from minicode.tools.edit_file import EditFileTool
+from minicode.tools.list_files import ListFilesTool
 from minicode.tools.process import ProcessRunner
 from minicode.tools.read_file import ReadFileTool
 from minicode.tools.registry import ToolRegistry
@@ -35,6 +36,10 @@ def build_default_coding_policy() -> ConfiguredToolPolicy:
     """Allow observation while requiring approval for side effects."""
     return ConfiguredToolPolicy(
         decisions={
+            "list_files": PolicyDecision(
+                outcome=PolicyOutcome.ALLOW,
+                reason="workspace file discovery is allowed",
+            ),
             "read_file": PolicyDecision(
                 outcome=PolicyOutcome.ALLOW,
                 reason="workspace reads are allowed",
@@ -104,6 +109,7 @@ def build_coding_agent(
     registry = ToolRegistry()
 
     for tool in (
+        ListFilesTool(workspace),
         ReadFileTool(workspace),
         SearchTextTool(workspace),
         EditFileTool(workspace),

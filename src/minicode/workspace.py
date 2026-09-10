@@ -138,6 +138,7 @@ class Workspace:
         relative_path: str,
         *,
         max_files: int,
+        excluded_directory_names: frozenset[str] = frozenset(),
     ) -> tuple[str, ...]:
         """List a bounded number of regular workspace files."""
         if isinstance(
@@ -159,14 +160,23 @@ class Workspace:
         elif target_path.is_dir():
             collected_paths: list[Path] = []
 
-            for path in target_path.rglob("*"):
-                if not path.is_file():
-                    continue
+            for directory_path, directory_names, file_names in target_path.walk():
+                directory_names[:] = sorted(
+                    name
+                    for name in directory_names
+                    if name not in excluded_directory_names
+                )
 
-                if len(collected_paths) >= max_files:
-                    raise WorkspaceFileLimitError(max_files)
+                for file_name in sorted(file_names):
+                    path = directory_path / file_name
 
-                collected_paths.append(path)
+                    if not path.is_file():
+                        continue
+
+                    if len(collected_paths) >= max_files:
+                        raise WorkspaceFileLimitError(max_files)
+
+                    collected_paths.append(path)
 
             candidate_paths = tuple(collected_paths)
         else:

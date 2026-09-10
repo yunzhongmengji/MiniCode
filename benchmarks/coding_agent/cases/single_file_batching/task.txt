@@ -1,0 +1,1 @@
+修复 batching.py 中导致 tests/test_batching.py 失败的问题，并运行相关测试验证。只允许修改 batching.py，不要修改测试文件或创建其他项目文件。

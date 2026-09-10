@@ -35,7 +35,7 @@ minicode run "检查相关代码并运行测试"
 minicode run "检查相关代码并运行测试" --trace
 ```
 
-`list_files`、`read_file` 和 `search_text` 默认允许；`create_file`、`edit_file` 和 `run_tests` 每次调用都需要终端确认。命令运行目录是 Workspace 根目录。当前 Trace、Event 和 Artifact 只保存在进程内，尚不提供跨进程恢复或持久审计。
+`list_files`、`read_file`、`search_text` 和 `git_diff` 默认允许；`create_file`、`edit_file` 和 `run_tests` 每次调用都需要终端确认。命令运行目录是 Workspace 根目录。当前 Trace、Event 和 Artifact 只保存在进程内，尚不提供跨进程恢复或持久审计。
 
 ## 项目证据
 

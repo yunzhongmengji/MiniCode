@@ -37,6 +37,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
             "list_files",
             "read_file",
             "search_text",
+            "git_diff",
             "create_file",
             "edit_file",
             "run_tests",
@@ -48,6 +49,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
         "list_files": PolicyOutcome.ALLOW,
         "read_file": PolicyOutcome.ALLOW,
         "search_text": PolicyOutcome.ALLOW,
+        "git_diff": PolicyOutcome.ALLOW,
         "create_file": PolicyOutcome.ASK,
         "edit_file": PolicyOutcome.ASK,
         "run_tests": PolicyOutcome.ASK,
@@ -133,6 +135,7 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
         "list_files",
         "read_file",
         "search_text",
+        "git_diff",
         "create_file",
         "edit_file",
         "run_tests",
@@ -141,6 +144,7 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
 
     assert len(instructions) == 1
     assert "Inspect relevant files before editing" in instructions[0]
+    assert "Use git_diff to review non-trivial or multi-file changes" in instructions[0]
     assert "Run relevant tests after changing code" in instructions[0]
     assert model.requests[1].instructions == instructions
     assert model.requests[1].conversation == (

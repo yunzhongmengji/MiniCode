@@ -1,0 +1,45 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS search_driven_retry_schedule"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "14b35879c14bfec5c3c8ff1fdbf37748c678add0fcdf90f78c8688519d8f3fdd"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "6d73614f277444bda503d3be00247fb91d1f58b5345691990372317b980187da"
+    }
+  },
+  "case_id": "search_driven_retry_schedule",
+  "minicode_commit": "ccf6300e87818e2de98baf6c9e49578cf190b28c",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-10T10:17:44.414221+00:00",
+  "run": {
+    "input_tokens": 10882,
+    "model_call_count": 6,
+    "outcome": "succeeded",
+    "output_tokens": 502,
+    "run_id": "run_5fec565a6231409abcbb23e494bffab5",
+    "stop_reason": "completed",
+    "tool_execution_count": 7,
+    "tool_requests": {
+      "edit_file": 1,
+      "list_files": 1,
+      "read_file": 3,
+      "run_tests": 1,
+      "search_text": 1
+    },
+    "turns_used": 6
+  },
+  "schema_version": 1,
+  "workspace_status": [
+    " M retrying/backoff.py"
+  ]
+}

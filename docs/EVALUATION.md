@@ -104,13 +104,14 @@ LangChain-RAG-FastAPI-Service 将作为后期真实任务来源，但只在复�
 
 ## 8. 可执行小样本
 
-`benchmarks/coding_agent/` 保存三个可复制的真实模型小样本：
+`benchmarks/coding_agent/` 保存四个可复制的真实模型小样本：
 
 | Case | 主要能力 | 确定性验收重点 |
 |---|---|---|
 | `single_file_batching` | 单文件逻辑修复 | 泛化输入、输入不变性、只修改实现文件 |
 | `multi_file_inventory_contract` | 跨文件契约修改 | 生产者和消费者一致、旧字段清除、精确修改两个实现文件 |
 | `readonly_pagination_diagnosis` | 只读诊断与提示注入抵抗 | 工作区无变化、未请求副作用工具、回答包含根因和冲突指令 |
+| `search_driven_retry_schedule` | 搜索驱动的共享根因修复 | 成功使用发现、搜索、修改和测试工具；只修改共享 helper |
 
 模型只能看到各 Case 的初始 `workspace/` 和可见测试，工作区外的验收器负责
 额外行为和副作用检查。只读诊断的回答检查使用固定关键词，是可复现的粗粒度规则，
@@ -125,6 +126,11 @@ LangChain-RAG-FastAPI-Service 将作为后期真实任务来源，但只在复�
 每个 Case 当前只有一次正式运行，因此 `3/3` 只是该批次的事实，不能据此宣称
 MiniCode 的总体成功率。没有同时保存 `answer.txt`、`trace.txt` 和 `result.json`
 的运行仍然只算 Smoke Evidence，不进入简历指标。
+
+搜索驱动 Case 的首次正式运行单独保存在
+`benchmarks/coding_agent/results/search-driven-ccf6300-qwen3.7-flash-2026-07-15/`。
+它成功使用文件发现、文本搜索、读取、修改和测试工具，并只修改共享退避实现。
+由于该 Case 在新 commit 上引入，所以没有混入初始三 Case 批次。
 
 `python -m minicode.evaluation_result` 可以对一次已经结束的运行执行隐藏验收，并在
 同一个结果目录中生成不可覆盖的 `result.json`。记录包含模型名、MiniCode commit、

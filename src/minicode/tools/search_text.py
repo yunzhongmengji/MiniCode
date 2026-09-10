@@ -12,6 +12,7 @@ from minicode.workspace import (
     Workspace,
     WorkspaceFileLimitError,
     WorkspacePathError,
+    WorkspaceReadLimitError,
 )
 
 _DEFAULT_MAX_BYTES = 100_000
@@ -57,7 +58,10 @@ class SearchTextArguments(ToolArguments):
 
 _SEARCH_TEXT_SPEC = ToolSpec(
     name="search_text",
-    description=("Search for literal text inside workspace files."),
+    description=(
+        "Search for literal text inside UTF-8 workspace files. Directory searches "
+        "skip non-UTF-8 and oversized files."
+    ),
     arguments_type=SearchTextArguments,
 )
 
@@ -117,6 +121,11 @@ class SearchTextTool:
             raise TypeError("arguments must be SearchTextArguments")
 
         try:
+            target_path = await asyncio.to_thread(
+                self._workspace.resolve_path,
+                arguments.path,
+            )
+            searching_directory = await asyncio.to_thread(target_path.is_dir)
             paths = await asyncio.to_thread(
                 self._workspace.list_files,
                 arguments.path,
@@ -127,11 +136,20 @@ class SearchTextTool:
             matches: list[str] = []
 
             for path in paths:
-                content = await asyncio.to_thread(
-                    self._workspace.read_text,
-                    path,
-                    max_bytes=_DEFAULT_MAX_BYTES,
-                )
+                try:
+                    content = await asyncio.to_thread(
+                        self._workspace.read_text,
+                        path,
+                        max_bytes=_DEFAULT_MAX_BYTES,
+                    )
+                except (
+                    UnicodeDecodeError,
+                    WorkspaceReadLimitError,
+                ):
+                    if searching_directory:
+                        continue
+
+                    raise
 
                 for line_number, line in enumerate(
                     content.splitlines(),
@@ -165,4 +183,8 @@ class SearchTextTool:
         except UnicodeDecodeError as error:
             raise ToolExecutionError(
                 f"file is not valid UTF-8: {arguments.path}"
+            ) from error
+        except WorkspaceReadLimitError as error:
+            raise ToolExecutionError(
+                f"file exceeds {_DEFAULT_MAX_BYTES}-byte search limit: {arguments.path}"
             ) from error

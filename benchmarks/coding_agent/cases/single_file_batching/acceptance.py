@@ -76,9 +76,9 @@ def verify(workspace: Path) -> None:
 
 def main() -> int:
     """Run the acceptance check for one prepared workspace."""
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 4):
         print(
-            "usage: acceptance.py WORKSPACE",
+            "usage: acceptance.py WORKSPACE [ANSWER TRACE]",
             file=sys.stderr,
         )
         return 2

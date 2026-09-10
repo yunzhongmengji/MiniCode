@@ -192,7 +192,7 @@ QueryLoop → RecordingModel → OpenAICompatibleModel → Provider SDK
 - `RecordingModel` 当前只观测 `complete()`；流式调用可以在最终事件中获得 Token，但尚未由该包装器记录流式总延迟和错误分类。
 - 尚未记录 Provider 请求 ID、成本和 cache Token 细分。
 - Query Loop 已有整次运行的总时限，但尚未对每次模型调用提供独立的动态超时配置。
-- CLI 尚未组装真实模型与工具闭环。
+- CLI 已通过 `build_coding_agent()` 组装 DashScope 模型与默认 Coding Tools；当前仍使用非流式 `complete()`，尚未把 Adapter 的流式事件接入 Query Loop 或终端展示。
 - 当前只消费第一个 choice，不支持多候选响应。
 - Provider 兼容差异目前只通过 `extra_body` 和 DashScope 组装层处理。
 - 在当前 OpenAI SDK/httpcore2 组合下，真实流式 smoke test 内容完整，但进程关闭时曾观察到 transport 异步生成器关闭警告；不在业务层屏蔽该警告。

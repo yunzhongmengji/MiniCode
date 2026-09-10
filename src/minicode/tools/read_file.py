@@ -1,6 +1,7 @@
 """Tool for reading UTF-8 text files from a workspace."""
 
 import asyncio
+import json
 
 from pydantic import Field, field_validator
 
@@ -38,7 +39,9 @@ class ReadFileArguments(ToolArguments):
 
 _READ_FILE_SPEC = ToolSpec(
     name="read_file",
-    description="Read a UTF-8 text file from the workspace.",
+    description=(
+        "Read a UTF-8 text file from the workspace and return path-labeled content."
+    ),
     arguments_type=ReadFileArguments,
 )
 
@@ -78,7 +81,7 @@ class ReadFileTool:
             raise TypeError("arguments must be ReadFileArguments")
 
         try:
-            return await asyncio.to_thread(
+            content = await asyncio.to_thread(
                 self._workspace.read_text,
                 arguments.path,
                 max_bytes=self._max_bytes,
@@ -101,3 +104,9 @@ class ReadFileTool:
             raise ToolExecutionError(
                 f"file is not valid UTF-8: {arguments.path}"
             ) from error
+
+        rendered_path = json.dumps(
+            arguments.path,
+            ensure_ascii=False,
+        )
+        return f"File {rendered_path}:\n{content}"

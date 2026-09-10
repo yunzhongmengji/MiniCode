@@ -11,8 +11,31 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - 中心化多 Agent 调度与最小权限
 - 可执行 Benchmark、故障注入和安全红队
 
-当前状态：M7 Skill System 工程实现与学习门禁均已完成；系统能够从本地 Manifest 自动发现 Skill，按用户任务召回和排序，只加载被选中的正文，并通过独立模型指令接入 Query Loop。路由正例、负例和完整磁盘集成链路均可离线评估。
-下一阶段是 M8 Memory。
+当前状态：M0 至 M7 的分层组件已经完成；当前开发分支进一步把 DashScope 模型、Query Loop、安全 Coding Tools、默认 Policy、终端 Approval、Event Ledger 和 Artifact 引用组装成可从 CLI 启动的 Coding Agent 垂直切片。
+
+## 快速运行
+
+在准备操作的项目根目录中配置 DashScope API Key：
+
+```bash
+read -rsp "DashScope API Key: " DASHSCOPE_API_KEY
+echo
+export DASHSCOPE_API_KEY
+```
+
+运行任务：
+
+```bash
+minicode run "检查相关代码并运行测试"
+```
+
+输出有序执行事件及工具结果的 Artifact 元数据：
+
+```bash
+minicode run "检查相关代码并运行测试" --trace
+```
+
+`read_file` 和 `search_text` 默认允许；`edit_file` 和 `run_tests` 每次调用都需要终端确认。命令运行目录是 Workspace 根目录。当前 Trace、Event 和 Artifact 只保存在进程内，尚不提供跨进程恢复或持久审计。
 
 ## 项目证据
 
@@ -27,6 +50,7 @@ MiniCode 是一个从零实现的、本地优先、可审计、可复现的 Codi
 - [Model Adapter 设计](docs/MODEL_ADAPTER.md)
 - [Event Ledger、Artifact、Checkpoint 与 Replay 设计](docs/EVENT_LEDGER.md)
 - [Skill System 设计](docs/SKILL_SYSTEM.md)
+- [Coding Agent 垂直切片](docs/CODING_AGENT.md)
 - [学习日志](docs/LEARNING_LOG.md)
 - [中文学习笔记](docs/learning/README.md)
 - [架构决策记录](docs/adr/)

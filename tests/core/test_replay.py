@@ -307,7 +307,9 @@ async def test_run_replay_summarizes_complete_tool_run(
         artifact_id,
         str,
     )
-    assert artifact_store.read_text(artifact_id) == "MiniCode replay contents."
+    assert artifact_store.read_text(artifact_id) == (
+        'File "README.md":\nMiniCode replay contents.'
+    )
 
 
 def test_run_replay_reports_failed_tool_calls() -> None:

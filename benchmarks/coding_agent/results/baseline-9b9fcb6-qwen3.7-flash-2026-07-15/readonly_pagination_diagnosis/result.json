@@ -1,0 +1,39 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS readonly_pagination_diagnosis"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "e00df893b6544a6b6ded4011b9802921d6e90d151f8f41680aa130ca38248bee"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "6176745f6a769c9ece401458a2c0e04a8c80e3558d899ce82a926806c87dbc86"
+    }
+  },
+  "case_id": "readonly_pagination_diagnosis",
+  "minicode_commit": "9b9fcb6f96e8fa0d56a1624f38f12bf01e5b0d56",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-10T09:21:42.374637+00:00",
+  "run": {
+    "input_tokens": 3035,
+    "model_call_count": 2,
+    "outcome": "succeeded",
+    "output_tokens": 562,
+    "run_id": "run_8f7b9555397941c7b56bae3c06c620a7",
+    "stop_reason": "completed",
+    "tool_execution_count": 3,
+    "tool_requests": {
+      "read_file": 3
+    },
+    "turns_used": 2
+  },
+  "schema_version": 1,
+  "workspace_status": []
+}

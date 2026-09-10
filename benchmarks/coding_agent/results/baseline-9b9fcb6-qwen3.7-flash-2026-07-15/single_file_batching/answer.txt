@@ -1,0 +1,15 @@
+Tool approval required
+Tool: run_tests
+Arguments: {"path": "tests/test_batching.py"}
+Reason: running tests requires approval
+Approve? [y/N]: Tool approval required
+Tool: edit_file
+Arguments: {"new_text": "            size,", "old_text": "            size + 1,", "path": "batching.py"}
+Reason: workspace changes require approval
+Approve? [y/N]: Tool approval required
+Tool: run_tests
+Arguments: {"path": "tests/test_batching.py"}
+Reason: running tests requires approval
+Approve? [y/N]: 两个测试都通过了。
+
+**问题原因：** `batching.py` 中 `range(0, len(items), size + 1)` 的步长写成了 `size + 1`，导致每次跳过了一个元素（例如 step=3 会取索引 0, 3... 而不是 0, 2...）。将其修正为 `size` 后，切片正确地按批次大小分割了列表。

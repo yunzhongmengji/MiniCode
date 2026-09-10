@@ -38,11 +38,14 @@ CLI task
 | `list_files` | 发现工作区文件结构 | `ALLOW` | Workspace 路径、常见生成目录剪枝和文件数量上限 |
 | `read_file` | 读取一个 UTF-8 文件 | `ALLOW` | Workspace 路径和 byte 上限 |
 | `search_text` | 搜索文件或目录 | `ALLOW` | Workspace、目录剪枝、文件与结果数上限；目录搜索跳过非 UTF-8 和超大文件 |
+| `git_diff` | 查看路径下的 Git 状态和已跟踪文件差异 | `ALLOW` | Workspace、固定 argv、无 shell、进程超时和返回内容 byte 上限 |
 | `create_file` | 创建一个新的 UTF-8 文件 | `ASK` | Workspace、完整内容大小、目标必须不存在、原子创建 |
 | `edit_file` | 唯一精确替换 | `ASK` | Workspace、源文件和结果大小、原子写入 |
 | `run_tests` | 运行限定路径的 pytest | `ASK` | Workspace、固定 argv、无 shell、进程超时 |
 
 模型只能生成 ToolCall，不能直接执行副作用。Dispatcher 先查 Registry 并验证参数，再执行 Policy；`ASK` 只有在 `ConsoleToolApprover` 收到明确的 `y` 或 `yes` 后才继续。每次批准只对应终端展示的那一次工具名称和参数。
+
+`git_diff` 组合两份只读证据：`git status --short` 负责列出修改、删除和未跟踪路径，`git diff HEAD` 负责展示已跟踪文件的实际补丁。Git 本身不会把未跟踪文件正文放进 diff，因此工具会明确提示模型再用 `read_file` 检查需要关注的新文件。路径前的 `--` 终止 Git 选项解析，模型提供的路径不能变成额外 Git 选项。
 
 ## 3. 文件结果的来源标记
 

@@ -44,11 +44,12 @@ ModelResponse.tool_calls
 
 Dispatcher 先进行工具专属 Schema 验证，再调用 Policy。这样非法参数不会打扰用户，也不会进入副作用路径。例如 `run_tests` 的 `path="--rootdir=/tmp"` 在 Pydantic 验证处直接变成错误 ToolResult，Policy、Approver 和 ProcessRunner 都不会运行。
 
-## 3. 三个 Coding Tools
+## 3. Coding Tools
 
 | 工具 | 行为 | 主要限制 |
 |---|---|---|
 | `search_text` | 在文件或目录中进行 literal substring search | Workspace 路径、稳定文件顺序、文件数、单文件 bytes、结果数 |
+| `git_diff` | 查看 Git 状态和已跟踪文件相对 `HEAD` 的差异 | Workspace 路径、固定 argv、`--` 参数分隔、超时、返回内容 bytes |
 | `create_file` | 创建一个不存在的 UTF-8 文本文件 | Workspace 路径、完整内容 bytes、目标必须不存在、原子创建 |
 | `edit_file` | 将一个唯一的 `old_text` 精确替换为 `new_text` | Workspace 路径、UTF-8、源文件/完整结果 bytes、必须恰好匹配一次 |
 | `run_tests` | 对一个工作区文件或目录运行固定 pytest 命令 | Workspace 路径、拒绝 `-` 开头参数、固定 argv、正数超时 |
@@ -85,6 +86,8 @@ AsyncioProcessRunner 使用 `create_subprocess_exec(*command)`。每个元素作
 
 无 shell 不能自动解决参数注入。如果模型把 `--rootdir=/tmp` 放在 path 位置，pytest 自己仍会把它解释为选项。因此 `RunTestsArguments` 额外拒绝所有以 `-` 开头的路径。
 
+GitDiffTool 同样使用固定参数序列，并在模型路径前加入 `--`。Git 把 `--` 后面的值一律解释为路径，所以即使路径以 `-` 开头，也不会被解释成 Git 配置项。它还显式关闭外部 diff 和 textconv，避免只读复核意外启动仓库配置的外部转换程序。
+
 ## 6. 超时与错误分层
 
 ProcessRunner 超时时负责：
@@ -100,7 +103,7 @@ RunTestsTool 捕获该 TimeoutError，将其翻译为包含限制时间的 ToolE
 - Workspace 的路径检查与随后打开之间存在 TOCTOU 窗口。
 - 原子替换降低部分写入风险，但不是版本控制、事务或并发冲突检测。
 - pytest 子进程继承当前环境，尚未建立环境变量白名单。
-- stdout/stderr 由 `communicate()` 全量保存，尚未设置输出 byte 上限。
+- stdout/stderr 仍由 `communicate()` 全量保存；GitDiffTool 会限制返回给模型的内容，但尚未从进程管道读取阶段限制内存占用。
 - 超时只直接终止 pytest 进程，尚未保证其所有后代进程同时退出。
 - Policy 当前按工具名配置；Approval 已记录内存事件，但尚无持久审计、一次性令牌或过期机制。
 - 没有 OS Sandbox，当前实现不允许任意 Shell，也不应被描述为宿主机隔离。

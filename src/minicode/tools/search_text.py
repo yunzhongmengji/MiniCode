@@ -5,6 +5,7 @@ import asyncio
 from pydantic import Field, field_validator
 
 from minicode.tools.base import ToolExecutionError
+from minicode.tools.file_selection import DEFAULT_EXCLUDED_DIRECTORY_NAMES
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
 from minicode.workspace import (
@@ -120,6 +121,7 @@ class SearchTextTool:
                 self._workspace.list_files,
                 arguments.path,
                 max_files=self._max_files,
+                excluded_directory_names=DEFAULT_EXCLUDED_DIRECTORY_NAMES,
             )
 
             matches: list[str] = []

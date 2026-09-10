@@ -37,7 +37,7 @@ CLI task
 |---|---|---|---|
 | `list_files` | 发现工作区文件结构 | `ALLOW` | Workspace 路径、常见生成目录剪枝和文件数量上限 |
 | `read_file` | 读取一个 UTF-8 文件 | `ALLOW` | Workspace 路径和 byte 上限 |
-| `search_text` | 搜索文件或目录 | `ALLOW` | Workspace、文件数、文件大小和结果数上限 |
+| `search_text` | 搜索文件或目录 | `ALLOW` | Workspace、常见生成目录剪枝、文件数、文件大小和结果数上限 |
 | `edit_file` | 唯一精确替换 | `ASK` | Workspace、源文件和结果大小、原子写入 |
 | `run_tests` | 运行限定路径的 pytest | `ASK` | Workspace、固定 argv、无 shell、进程超时 |
 

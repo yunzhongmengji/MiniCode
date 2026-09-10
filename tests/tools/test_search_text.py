@@ -266,6 +266,30 @@ async def test_search_text_tool_searches_directory_in_stable_order(
 
 
 @pytest.mark.asyncio
+async def test_search_text_tool_excludes_dependency_directories_before_limit(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app.py").write_text(
+        "project needle\n",
+        encoding="utf-8",
+    )
+    dependency_root = tmp_path / ".venv"
+    dependency_root.mkdir()
+    (dependency_root / "package.py").write_text(
+        "dependency needle\n",
+        encoding="utf-8",
+    )
+    tool = SearchTextTool(
+        workspace=Workspace(tmp_path),
+        max_files=1,
+    )
+
+    output = await tool.execute(SearchTextArguments(query="needle"))
+
+    assert output == "app.py:1:project needle"
+
+
+@pytest.mark.asyncio
 async def test_search_text_tool_rejects_directory_over_file_limit(
     tmp_path: Path,
 ) -> None:

@@ -33,7 +33,10 @@ def test_search_text_tool_exposes_spec(
 
     assert tool.spec == ToolSpec(
         name="search_text",
-        description=("Search for literal text inside workspace files."),
+        description=(
+            "Search for literal text inside UTF-8 workspace files. Directory "
+            "searches skip non-UTF-8 and oversized files."
+        ),
         arguments_type=SearchTextArguments,
     )
 
@@ -263,6 +266,52 @@ async def test_search_text_tool_searches_directory_in_stable_order(
         "src/b.txt:1:needle from b\n"
         "src/nested/c.txt:1:needle from c"
     )
+
+
+@pytest.mark.asyncio
+async def test_search_text_tool_excludes_dependency_directories_before_limit(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app.py").write_text(
+        "project needle\n",
+        encoding="utf-8",
+    )
+    dependency_root = tmp_path / ".venv"
+    dependency_root.mkdir()
+    (dependency_root / "package.py").write_text(
+        "dependency needle\n",
+        encoding="utf-8",
+    )
+    tool = SearchTextTool(
+        workspace=Workspace(tmp_path),
+        max_files=1,
+    )
+
+    output = await tool.execute(SearchTextArguments(query="needle"))
+
+    assert output == "app.py:1:project needle"
+
+
+@pytest.mark.asyncio
+async def test_search_text_tool_skips_unreadable_files_in_directory(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "app.py").write_text(
+        "project needle\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "image.bin").write_bytes(b"\xff")
+    (tmp_path / "large.txt").write_text(
+        "x" * 100_001,
+        encoding="utf-8",
+    )
+    tool = SearchTextTool(
+        workspace=Workspace(tmp_path),
+    )
+
+    output = await tool.execute(SearchTextArguments(query="needle"))
+
+    assert output == "app.py:1:project needle"
 
 
 @pytest.mark.asyncio

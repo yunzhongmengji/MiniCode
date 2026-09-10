@@ -6,6 +6,7 @@ import json
 from pydantic import Field, field_validator
 
 from minicode.tools.base import ToolExecutionError
+from minicode.tools.file_selection import DEFAULT_EXCLUDED_DIRECTORY_NAMES
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
 from minicode.workspace import (
@@ -15,19 +16,6 @@ from minicode.workspace import (
 )
 
 _DEFAULT_MAX_FILES = 1_000
-_EXCLUDED_DIRECTORY_NAMES = frozenset(
-    {
-        ".git",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".venv",
-        "__pycache__",
-        "build",
-        "dist",
-        "node_modules",
-    }
-)
 
 
 class ListFilesArguments(ToolArguments):
@@ -97,7 +85,7 @@ class ListFilesTool:
                 self._workspace.list_files,
                 arguments.path,
                 max_files=self._max_files,
-                excluded_directory_names=_EXCLUDED_DIRECTORY_NAMES,
+                excluded_directory_names=DEFAULT_EXCLUDED_DIRECTORY_NAMES,
             )
         except WorkspacePathError as error:
             raise ToolExecutionError(

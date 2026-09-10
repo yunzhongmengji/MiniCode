@@ -101,6 +101,7 @@ class QueryLoop:
         event_ledger: EventLedger | None = None,
         checkpoint_store: CheckpointStore | None = None,
         skill_context_provider: (SkillContextProvider | None) = None,
+        instructions: Sequence[str] = (),
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -149,6 +150,22 @@ class QueryLoop:
             if not isinstance(tool_spec, ToolSpec):
                 raise TypeError("tool_specs must contain only ToolSpec instances")
 
+        if not isinstance(
+            instructions,
+            Sequence,
+        ) or isinstance(
+            instructions,
+            (str, bytes),
+        ):
+            raise TypeError("instructions must be a sequence")
+
+        for instruction in instructions:
+            if not isinstance(instruction, str):
+                raise TypeError("instructions must contain only strings")
+
+            if not instruction.strip():
+                raise ValueError("instructions must not contain blank strings")
+
         if checkpoint_store is not None and event_ledger is None:
             raise ValueError("checkpoint_store requires an event_ledger")
 
@@ -161,6 +178,7 @@ class QueryLoop:
         self._event_ledger = event_ledger
         self._checkpoint_store = checkpoint_store
         self._skill_context_provider = skill_context_provider
+        self._instructions = tuple(instructions)
 
     def _record_event(
         self,
@@ -393,7 +411,8 @@ class QueryLoop:
     ) -> RunResult:
         """Run model turns until completion or a controlled stop."""
         message_history = tuple(messages)
-        instructions = await self._build_skill_instructions(message_history)
+        skill_instructions = await self._build_skill_instructions(message_history)
+        instructions = self._instructions + skill_instructions
 
         for turn in range(
             first_turn,

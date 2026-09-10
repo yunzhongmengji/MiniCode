@@ -66,12 +66,14 @@ def build_dashscope_client(
 
 def build_dashscope_model(
     config: DashScopeConfig,
+    *,
+    client: AsyncOpenAI | None = None,
 ) -> OpenAICompatibleModel:
     """Create a MiniCode model adapter for Alibaba Cloud Model Studio."""
-    client = build_dashscope_client(config)
+    resolved_client = build_dashscope_client(config) if client is None else client
 
     return OpenAICompatibleModel(
-        client=client,
+        client=resolved_client,
         model=config.model,
         extra_body={
             "enable_thinking": False,

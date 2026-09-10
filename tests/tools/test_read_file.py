@@ -34,7 +34,7 @@ async def test_read_file_tool_reads_workspace_file(
 
     output = await tool.execute(arguments)
 
-    assert output == "MiniCode 工作区"
+    assert output == ('File "README.md":\nMiniCode 工作区')
 
 
 @pytest.mark.asyncio
@@ -199,7 +199,9 @@ def test_read_file_tool_exposes_model_facing_spec(
     parameters_schema = spec.arguments_type.model_json_schema()
 
     assert spec.name == "read_file"
-    assert spec.description == ("Read a UTF-8 text file from the workspace.")
+    assert spec.description == (
+        "Read a UTF-8 text file from the workspace and return path-labeled content."
+    )
     assert spec.arguments_type is ReadFileArguments
     assert parameters_schema["required"] == ["path"]
     assert parameters_schema["properties"]["path"]["description"] == (

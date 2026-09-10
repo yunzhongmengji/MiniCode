@@ -110,3 +110,29 @@ def test_build_dashscope_model_wires_client_to_adapter() -> None:
         },
     )
     assert model is model_type.return_value
+
+
+def test_build_dashscope_model_accepts_existing_client() -> None:
+    config = DashScopeConfig(
+        api_key="test-api-key",
+        model="test-model",
+    )
+
+    with (
+        patch("minicode.models.dashscope.build_dashscope_client") as client_builder,
+        patch("minicode.models.dashscope.OpenAICompatibleModel") as model_type,
+    ):
+        model = build_dashscope_model(
+            config,
+            client=client_builder.return_value,
+        )
+
+    client_builder.assert_not_called()
+    model_type.assert_called_once_with(
+        client=client_builder.return_value,
+        model="test-model",
+        extra_body={
+            "enable_thinking": False,
+        },
+    )
+    assert model is model_type.return_value

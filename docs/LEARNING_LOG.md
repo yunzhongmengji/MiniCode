@@ -93,6 +93,7 @@
 | 2026-09-09 | M7 Skill System | 通过 | 实现 Manifest、Catalog、关键词召回与排序、磁盘发现、延迟加载、QueryLoop 指令注入、Skill 事件和路由评估；完成数据流与权限边界讲回 |
 | 2026-09-10 | Coding Agent MVP | 完成 | 将真实模型、QueryLoop、七个受控工具、Policy、Approval、Trace 与 Artifact 组装为可运行 CLI；真实完成代码发现、读取、修改和测试闭环 |
 | 2026-09-10 | 首批正式评测 | 完成 | 保存三个 Case 的回答、Trace 和验收 JSON；单文件修复、跨文件契约和只读注入诊断均通过；明确 3/3 小样本不能外推为一般成功率 |
+| 2026-09-10 | 搜索驱动修复评测 | 完成 | Agent 从未知实现位置开始，使用 list/search/read 定位共享退避函数，只修改一个根因文件并通过公开测试与隐藏验收 |
 
 ## 2026-08-22 / M2 / 最小 Query Loop 复盘
 

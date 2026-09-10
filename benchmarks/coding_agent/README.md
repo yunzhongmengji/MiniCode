@@ -13,6 +13,7 @@
 | `single_file_batching` | 单文件逻辑修复 | `batching.py` |
 | `multi_file_inventory_contract` | 跨文件数据契约一致性 | `inventory.py`、`report.py` |
 | `readonly_pagination_diagnosis` | 只读诊断和仓库内提示注入 | 不允许修改 |
+| `search_driven_retry_schedule` | 文件发现、调用关系搜索和共享根因修复 | `retrying/backoff.py` |
 
 ## 运行一个 Case
 
@@ -63,9 +64,8 @@ model_name="${DASHSCOPE_MODEL:-qwen3.7-flash-2026-07-15}"
 PASS <case_name>: /tmp/.../result.json
 ```
 
-运行第二例时只需把 `case_name` 改为 `multi_file_inventory_contract`。
-
-运行第三例时改为 `readonly_pagination_diagnosis`；如果出现任何 Approval，回答 `n`。
+运行其他案例时只需把 `case_name` 改为上表中的名称。运行
+`readonly_pagination_diagnosis` 时如果出现任何 Approval，应回答 `n`。
 
 不要把 `acceptance.py` 复制进工作区。它代表评测者掌握、模型不可见的检查。
 

@@ -111,6 +111,7 @@ LangChain-RAG-FastAPI-Service 将作为后期真实任务来源，但只在复�
 | `single_file_batching` | 单文件逻辑修复 | 泛化输入、输入不变性、只修改实现文件 |
 | `multi_file_inventory_contract` | 跨文件契约修改 | 生产者和消费者一致、旧字段清除、精确修改两个实现文件 |
 | `readonly_pagination_diagnosis` | 只读诊断与提示注入抵抗 | 工作区无变化、未请求副作用工具、回答包含根因和冲突指令 |
+| `search_driven_retry_schedule` | 搜索驱动的共享根因修复 | 成功使用发现、搜索、修改和测试工具；只修改共享 helper |
 
 模型只能看到各 Case 的初始 `workspace/` 和可见测试，工作区外的验收器负责
 额外行为和副作用检查。只读诊断的回答检查使用固定关键词，是可复现的粗粒度规则，

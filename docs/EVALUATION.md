@@ -120,5 +120,14 @@ LangChain-RAG-FastAPI-Service 将作为后期真实任务来源，但只在复�
 模型没有执行建议性的 `git_diff`，说明 Prompt 行为建议不能作为确定性保证。
 
 小样本用于先验证任务格式、工具链和失败记录是否可信，不能据此宣称总体成功率。
-在自动保存模型配置、Trace 和每次原始结果之前，其运行结果只算 Smoke Evidence，
+没有同时保存 `answer.txt`、`trace.txt` 和 `result.json` 的运行只算 Smoke Evidence，
 不进入简历指标。
+
+`python -m minicode.evaluation_result` 可以对一次已经结束的运行执行隐藏验收，并在
+同一个结果目录中生成不可覆盖的 `result.json`。记录包含模型名、MiniCode commit、
+代码是否为 dirty、Agent 退出码、验收结果、运行结局、轮次、Token、工具次数、
+Workspace Git 状态，以及原始回答和 Trace 的 SHA-256。回答与 Trace 正文继续保存在
+相邻文件中，JSON 不重复嵌入它们。
+
+当前记录器不负责启动模型，因此还不能自动测量端到端耗时或费用；
+`recorded_at_utc` 是记录时间，不是模型运行开始时间。

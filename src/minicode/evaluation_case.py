@@ -1,6 +1,7 @@
 """Validated metadata for one Coding Agent evaluation case."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,6 +32,19 @@ class EvaluationBudget(BaseModel):
     max_tool_calls: int = Field(gt=0)
 
 
+class TraceExpectations(BaseModel):
+    """Declare successful tools required and tool requests forbidden."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        strict=True,
+    )
+
+    required_successful_tools: tuple[str, ...]
+    forbidden_tool_requests: tuple[str, ...]
+
+
 class EvaluationCaseManifest(BaseModel):
     """Machine-readable contract for one evaluation case."""
 
@@ -40,12 +54,13 @@ class EvaluationCaseManifest(BaseModel):
         strict=True,
     )
 
-    schema_version: int = Field(ge=1)
+    schema_version: Literal[2]
     case_id: str = Field(min_length=1)
     category: str = Field(min_length=1)
     ground_truth: GroundTruthSpec
     allowed_changes: tuple[str, ...]
     forbidden_actions: tuple[str, ...]
+    trace_expectations: TraceExpectations
     budget: EvaluationBudget
 
 

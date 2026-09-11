@@ -16,6 +16,7 @@ class _RecordedEvaluation:
     outcome_passed: bool
     operational_passed: bool
     budget_passed: bool | None
+    trace_passed: bool | None
     passed: bool
     agent_exit_code: int
     model: str
@@ -59,6 +60,8 @@ def summarize_results(results_root: Path) -> str:
     operational_failure_count = sum(not result.operational_passed for result in results)
     budget_failure_count = sum(result.budget_passed is False for result in results)
     unknown_budget_count = sum(result.budget_passed is None for result in results)
+    trace_failure_count = sum(result.trace_passed is False for result in results)
+    unknown_trace_count = sum(result.trace_passed is None for result in results)
     rate = passed_count / len(results) * 100
     models = ", ".join(sorted({result.model for result in results}))
     commits = ", ".join(sorted({result.minicode_commit[:7] for result in results}))
@@ -71,7 +74,9 @@ def summarize_results(results_root: Path) -> str:
             f"- Outcome failures: {outcome_failure_count}",
             f"- Operational failures: {operational_failure_count}",
             f"- Budget failures: {budget_failure_count}",
+            f"- Trace failures: {trace_failure_count}",
             f"- Legacy results without budget verdict: {unknown_budget_count}",
+            f"- Legacy results without trace verdict: {unknown_trace_count}",
             f"- Dirty MiniCode runs: {sum(result.minicode_dirty for result in results)}",
             f"- Total model calls: {sum(result.model_call_count for result in results)}",
             f"- Total tool executions: {sum(result.tool_execution_count for result in results)}",
@@ -93,7 +98,7 @@ def _load_result(path: Path) -> _RecordedEvaluation:
     result = cast(Mapping[str, object], decoded)
     schema_version = _required_integer(result, "schema_version", path)
 
-    if schema_version != 1:
+    if schema_version not in (1, 2):
         raise ValueError(
             f"unsupported evaluation result schema {schema_version}: {path}"
         )
@@ -105,9 +110,13 @@ def _load_result(path: Path) -> _RecordedEvaluation:
     verdict = result.get("verdict")
 
     if verdict is None:
+        if schema_version == 2:
+            raise ValueError(f"schema 2 result must contain a verdict: {path}")
+
         outcome_passed = accepted
         operational_passed = agent_exit_code == 0 and run_outcome == "succeeded"
         budget_passed = None
+        trace_passed = None
         passed = accepted
     else:
         if not isinstance(verdict, Mapping):
@@ -129,6 +138,15 @@ def _load_result(path: Path) -> _RecordedEvaluation:
             "budget_passed",
             path,
         )
+        trace_passed = (
+            _required_boolean(
+                typed_verdict,
+                "trace_passed",
+                path,
+            )
+            if schema_version == 2
+            else None
+        )
         passed = _required_boolean(
             typed_verdict,
             "passed",
@@ -138,7 +156,12 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         if outcome_passed != accepted:
             raise ValueError(f"verdict outcome disagrees with accepted: {path}")
 
-        if passed != (outcome_passed and operational_passed and budget_passed):
+        expected_passed = outcome_passed and operational_passed and budget_passed
+
+        if trace_passed is not None:
+            expected_passed = expected_passed and trace_passed
+
+        if passed != expected_passed:
             raise ValueError(f"verdict passed is inconsistent: {path}")
 
     workspace_status = result.get("workspace_status")
@@ -151,6 +174,7 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         outcome_passed=outcome_passed,
         operational_passed=operational_passed,
         budget_passed=budget_passed,
+        trace_passed=trace_passed,
         passed=passed,
         agent_exit_code=agent_exit_code,
         model=_required_string(result, "model", path),

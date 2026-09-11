@@ -40,6 +40,17 @@ AND 没有超过任务预算
 - 最大轮次、时间和 Token/费用预算
 - 预期 Trace 不变量
 
+Case Manifest 第 2 版使用 `trace_expectations.required_successful_tools` 声明至少应
+成功完成一次的工具，使用 `forbidden_tool_requests` 声明不应到达 Policy 判断的工具
+请求。这两个列表不规定调用顺序或次数；自然语言 `forbidden_actions` 继续描述更宽的
+结果边界，由隐藏验收程序检查实际副作用。
+
+`evaluate_trace_expectations()` 对已经校验的 `RunReplay` 执行纯过程判定：只有
+`tool_execution_finished` 且 `outcome` 为 `succeeded` 才满足必需工具；只要工具请求
+到达 `tool_policy_decided`，就会命中禁止请求。判定结果分别保留缺失工具与违规工具，
+并写入第 2 版结果文档的 `trace_evaluation`。`verdict.trace_passed` 提供过程维度的
+布尔结果，总 `verdict.passed` 要求结果、运行、预算与 Trace 四个维度全部通过。
+
 ## 3. 指标
 
 正确性与可靠性：
@@ -139,15 +150,14 @@ Workspace Git 状态，以及原始回答和 Trace 的 SHA-256。回答与 Trace
 相邻文件中，JSON 不重复嵌入它们。
 
 新的结果还保存生成时的 `case_manifest` 快照，并将判定拆成两个层次：`accepted`
-只表示隐藏验收通过；`verdict.passed` 要求隐藏验收通过、Agent 正常完成并且没有超过
-Case 声明的模型轮次和 ToolCall 预算。预算合规目前是运行结束后的检查，还没有从
-Manifest 自动配置 Agent 的运行前限制。
+只表示隐藏验收通过；第 2 版结果的 `verdict.passed` 要求隐藏验收通过、Agent 正常
+完成、没有超过 Case 声明的模型轮次和 ToolCall 预算，并满足 Trace 工具契约。
 
 当前记录器不负责启动模型，因此还不能自动测量端到端耗时或费用；
 `recorded_at_utc` 是记录时间，不是模型运行开始时间。
 
 `python -m minicode.evaluation_summary <results-root>` 会递归读取一个结果批次，输出
-逐 Case 和总体的综合通过情况、结果失败、运行失败、预算失败、模型调用、工具执行、
-Token 与改动数量。新结果使用 `verdict.passed`，没有 `verdict` 的历史结果继续使用
-`accepted`，并将无法还原的预算状态标记为未知。汇总器只读取已有记录，不会重新调用
-模型或改变单次判定。
+逐 Case 和总体的综合通过情况、结果失败、运行失败、预算失败、Trace 失败、模型调用、
+工具执行、Token 与改动数量。汇总器同时读取第 1 版历史结果和第 2 版四维判定结果；
+历史记录中无法还原的预算或 Trace 状态标记为未知，不凭最终结果进行猜测。汇总器只
+读取已有记录，不会重新调用模型或改变单次判定。

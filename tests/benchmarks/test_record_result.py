@@ -11,6 +11,7 @@ from minicode.evaluation_result import (
     record_result,
     summarize_trace,
 )
+from minicode.evaluation_trace import TraceEvaluation
 
 _TRACE = """Trace run_001
 001 run_started {"initial_history_items": 1}
@@ -82,12 +83,17 @@ def test_verdict_separates_accepted_result_from_operational_failure() -> None:
             max_turns=1,
             max_tool_calls=1,
         ),
+        trace_evaluation=TraceEvaluation(
+            missing_required_tools=(),
+            requested_forbidden_tools=(),
+        ),
     )
 
     assert verdict == {
         "outcome_passed": True,
         "operational_passed": False,
         "budget_passed": True,
+        "trace_passed": True,
         "passed": False,
     }
 
@@ -108,10 +114,37 @@ def test_verdict_reports_a_run_over_its_turn_budget() -> None:
             max_turns=1,
             max_tool_calls=1,
         ),
+        trace_evaluation=TraceEvaluation(
+            missing_required_tools=(),
+            requested_forbidden_tools=(),
+        ),
     ) == {
         "outcome_passed": True,
         "operational_passed": True,
         "budget_passed": False,
+        "trace_passed": True,
+        "passed": False,
+    }
+
+
+def test_verdict_fails_when_trace_contract_is_not_satisfied() -> None:
+    assert build_evaluation_verdict(
+        replay=parse_trace(_TRACE),
+        acceptance_exit_code=0,
+        agent_exit_code=0,
+        budget=EvaluationBudget(
+            max_turns=1,
+            max_tool_calls=1,
+        ),
+        trace_evaluation=TraceEvaluation(
+            missing_required_tools=("run_tests",),
+            requested_forbidden_tools=(),
+        ),
+    ) == {
+        "outcome_passed": True,
+        "operational_passed": True,
+        "budget_passed": True,
+        "trace_passed": False,
         "passed": False,
     }
 
@@ -139,7 +172,7 @@ def test_result_recorder_preserves_success_and_failure_results(
     (case_root / "case.json").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "case_id": "case",
                 "category": "fixture",
                 "ground_truth": {
@@ -150,6 +183,10 @@ def test_result_recorder_preserves_success_and_failure_results(
                 },
                 "allowed_changes": [],
                 "forbidden_actions": [],
+                "trace_expectations": {
+                    "required_successful_tools": ["read_file"],
+                    "forbidden_tool_requests": ["edit_file"],
+                },
                 "budget": {
                     "max_turns": 1,
                     "max_tool_calls": 1,
@@ -191,11 +228,13 @@ def test_result_recorder_preserves_success_and_failure_results(
 
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert accepted is expected_accepted
+    assert result["schema_version"] == 2
     assert result["accepted"] is expected_accepted
     assert result["verdict"] == {
         "outcome_passed": expected_accepted,
         "operational_passed": True,
         "budget_passed": True,
+        "trace_passed": True,
         "passed": expected_accepted,
     }
     assert result["acceptance"]["exit_code"] == (0 if expected_accepted else 1)
@@ -209,6 +248,14 @@ def test_result_recorder_preserves_success_and_failure_results(
     assert result["case_manifest"]["budget"] == {
         "max_turns": 1,
         "max_tool_calls": 1,
+    }
+    assert result["case_manifest"]["trace_expectations"] == {
+        "required_successful_tools": ["read_file"],
+        "forbidden_tool_requests": ["edit_file"],
+    }
+    assert result["trace_evaluation"] == {
+        "missing_required_tools": [],
+        "requested_forbidden_tools": [],
     }
     assert result["model"] == "test-model"
     assert result["run"]["input_tokens"] == 12

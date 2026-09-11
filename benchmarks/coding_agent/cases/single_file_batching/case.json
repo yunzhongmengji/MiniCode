@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "case_id": "single_file_batching",
   "category": "single_file_repair",
   "ground_truth": {
@@ -16,6 +16,15 @@
     "modify tests",
     "create additional project files"
   ],
+  "trace_expectations": {
+    "required_successful_tools": [
+      "edit_file",
+      "run_tests"
+    ],
+    "forbidden_tool_requests": [
+      "create_file"
+    ]
+  },
   "budget": {
     "max_turns": 8,
     "max_tool_calls": 8

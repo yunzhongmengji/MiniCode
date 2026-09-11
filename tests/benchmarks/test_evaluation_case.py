@@ -6,6 +6,7 @@ from minicode.evaluation_case import (
     EvaluationBudget,
     EvaluationCaseManifest,
     GroundTruthSpec,
+    TraceExpectations,
     load_case_manifest,
 )
 
@@ -18,7 +19,7 @@ def test_loads_single_file_case_contract() -> None:
     case_root = _cases_root() / "single_file_batching"
 
     assert load_case_manifest(case_root) == EvaluationCaseManifest(
-        schema_version=1,
+        schema_version=2,
         case_id="single_file_batching",
         category="single_file_repair",
         ground_truth=GroundTruthSpec(
@@ -32,6 +33,13 @@ def test_loads_single_file_case_contract() -> None:
         forbidden_actions=(
             "modify tests",
             "create additional project files",
+        ),
+        trace_expectations=TraceExpectations(
+            required_successful_tools=(
+                "edit_file",
+                "run_tests",
+            ),
+            forbidden_tool_requests=("create_file",),
         ),
         budget=EvaluationBudget(
             max_turns=8,
@@ -57,7 +65,7 @@ def test_rejects_case_id_that_disagrees_with_directory(
     case_root.mkdir()
     (case_root / "case.json").write_text(
         """{
-  "schema_version": 1,
+  "schema_version": 2,
   "case_id": "different_name",
   "category": "fixture",
   "ground_truth": {
@@ -66,6 +74,10 @@ def test_rejects_case_id_that_disagrees_with_directory(
   },
   "allowed_changes": [],
   "forbidden_actions": [],
+  "trace_expectations": {
+    "required_successful_tools": [],
+    "forbidden_tool_requests": []
+  },
   "budget": {
     "max_turns": 1,
     "max_tool_calls": 1

@@ -16,12 +16,13 @@ def _write_result(
     input_tokens: int,
     output_tokens: int,
     workspace_changes: list[str],
+    schema_version: int = 1,
     verdict: dict[str, bool] | None = None,
 ) -> None:
     case_root = root / case_id
     case_root.mkdir()
     result = {
-        "schema_version": 1,
+        "schema_version": schema_version,
         "case_id": case_id,
         "accepted": accepted,
         "agent_exit_code": 0,
@@ -73,10 +74,12 @@ def test_summary_combines_recorded_results(tmp_path: Path) -> None:
         input_tokens=40,
         output_tokens=10,
         workspace_changes=[],
+        schema_version=2,
         verdict={
             "outcome_passed": True,
             "operational_passed": False,
             "budget_passed": False,
+            "trace_passed": False,
             "passed": False,
         },
     )
@@ -89,7 +92,9 @@ def test_summary_combines_recorded_results(tmp_path: Path) -> None:
     assert "- Outcome failures: 0" in summary
     assert "- Operational failures: 1" in summary
     assert "- Budget failures: 1" in summary
+    assert "- Trace failures: 1" in summary
     assert "- Legacy results without budget verdict: 0" in summary
+    assert "- Legacy results without trace verdict: 1" in summary
     assert "- Total model calls: 3" in summary
     assert "- Total tool executions: 3" in summary
     assert "- Total input tokens: 140" in summary
@@ -117,7 +122,36 @@ def test_summary_keeps_legacy_result_without_verdict(tmp_path: Path) -> None:
     assert "- Outcome failures: 1" in summary
     assert "- Operational failures: 0" in summary
     assert "- Budget failures: 0" in summary
+    assert "- Trace failures: 0" in summary
     assert "- Legacy results without budget verdict: 1" in summary
+    assert "- Legacy results without trace verdict: 1" in summary
+
+
+def test_summary_rejects_inconsistent_trace_verdict(tmp_path: Path) -> None:
+    _write_result(
+        tmp_path,
+        case_id="case",
+        accepted=True,
+        model_calls=1,
+        tool_executions=1,
+        input_tokens=10,
+        output_tokens=5,
+        workspace_changes=[],
+        schema_version=2,
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": True,
+            "budget_passed": True,
+            "trace_passed": False,
+            "passed": True,
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="verdict passed is inconsistent",
+    ):
+        summarize_results(tmp_path)
 
 
 def test_summary_rejects_directory_without_results(tmp_path: Path) -> None:

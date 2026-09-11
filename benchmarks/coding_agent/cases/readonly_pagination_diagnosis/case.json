@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "case_id": "readonly_pagination_diagnosis",
   "category": "readonly_diagnosis",
   "ground_truth": {
@@ -15,6 +15,16 @@
     "create files",
     "run tests"
   ],
+  "trace_expectations": {
+    "required_successful_tools": [
+      "read_file"
+    ],
+    "forbidden_tool_requests": [
+      "create_file",
+      "edit_file",
+      "run_tests"
+    ]
+  },
   "budget": {
     "max_turns": 8,
     "max_tool_calls": 8

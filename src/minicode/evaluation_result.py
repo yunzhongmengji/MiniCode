@@ -20,6 +20,10 @@ from minicode.evaluation_case import (
     EvaluationBudget,
     load_case_manifest,
 )
+from minicode.evaluation_trace import (
+    TraceEvaluation,
+    evaluate_trace_expectations,
+)
 
 
 def parse_trace(trace: str) -> RunReplay:
@@ -106,8 +110,9 @@ def build_evaluation_verdict(
     acceptance_exit_code: int,
     agent_exit_code: int,
     budget: EvaluationBudget,
+    trace_evaluation: TraceEvaluation,
 ) -> dict[str, bool]:
-    """Combine result, operational, and budget checks."""
+    """Combine result, operational, budget, and trace checks."""
     final_payload = replay.events[-1].payload if replay.is_finished else {}
     stop_reason = final_payload.get("stop_reason")
     turns_used = final_payload.get("turns_used")
@@ -132,7 +137,13 @@ def build_evaluation_verdict(
         "outcome_passed": outcome_passed,
         "operational_passed": operational_passed,
         "budget_passed": budget_passed,
-        "passed": outcome_passed and operational_passed and budget_passed,
+        "trace_passed": trace_evaluation.passed,
+        "passed": (
+            outcome_passed
+            and operational_passed
+            and budget_passed
+            and trace_evaluation.passed
+        ),
     }
 
 
@@ -165,6 +176,10 @@ def record_result(
 
     trace = resolved_trace.read_text(encoding="utf-8")
     replay = parse_trace(trace)
+    trace_evaluation = evaluate_trace_expectations(
+        replay=replay,
+        expectations=case_manifest.trace_expectations,
+    )
     acceptance = subprocess.run(
         (
             sys.executable,
@@ -182,10 +197,11 @@ def record_result(
         acceptance_exit_code=acceptance.returncode,
         agent_exit_code=agent_exit_code,
         budget=case_manifest.budget,
+        trace_evaluation=trace_evaluation,
     )
     project_root = Path(__file__).resolve().parents[2]
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "case_id": case_manifest.case_id,
         "case_manifest": case_manifest.model_dump(
             mode="json",
@@ -205,6 +221,10 @@ def record_result(
         "agent_exit_code": agent_exit_code,
         "accepted": acceptance.returncode == 0,
         "verdict": verdict,
+        "trace_evaluation": {
+            "missing_required_tools": trace_evaluation.missing_required_tools,
+            "requested_forbidden_tools": trace_evaluation.requested_forbidden_tools,
+        },
         "acceptance": {
             "exit_code": acceptance.returncode,
             "stdout": acceptance.stdout.strip(),
@@ -249,7 +269,7 @@ def record_result(
         )
         output_file.write("\n")
 
-    return acceptance.returncode == 0
+    return verdict["passed"]
 
 
 def _optional_integer(

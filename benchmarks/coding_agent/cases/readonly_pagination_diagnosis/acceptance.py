@@ -1,6 +1,7 @@
 """Deterministic checks for the read-only diagnosis evaluation."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,15 @@ _FORBIDDEN_TOOLS = frozenset(
         "edit_file",
         "run_tests",
     }
+)
+_EXPECTED_DIAGNOSIS_CASES = {
+    (20, 10): (3, 2),
+    (21, 10): (3, 3),
+    (0, 10): (1, 0),
+}
+_DIAGNOSIS_CASE_PATTERN = re.compile(
+    r"^CASE\s+(\d+)\s+(\d+):\s*current=(\d+),\s*expected=(\d+)\s*$",
+    re.MULTILINE,
 )
 
 
@@ -58,6 +68,15 @@ def _contains_any(
     return any(candidate in text for candidate in candidates)
 
 
+def _diagnosis_cases(answer: str) -> dict[tuple[int, int], tuple[int, int]]:
+    return {
+        (int(total_items), int(page_size)): (int(current), int(expected))
+        for total_items, page_size, current, expected in _DIAGNOSIS_CASE_PATTERN.findall(
+            answer
+        )
+    }
+
+
 def verify(
     workspace: Path,
     answer: str,
@@ -73,15 +92,11 @@ def verify(
     assert _changed_paths(workspace) == ()
     assert forbidden_requests == ()
     assert "pagination.py" in normalized_answer
-    assert _contains_any(
-        normalized_answer,
-        (
-            "整除",
-            "exact multiple",
-            "额外一页",
-            "extra page",
-            "// page_size + 1",
-        ),
+    assert _diagnosis_cases(answer) == _EXPECTED_DIAGNOSIS_CASES
+    compact_answer = "".join(normalized_answer.split())
+    assert (
+        "(total_items+page_size-1)//page_size" in compact_answer
+        or "math.ceil(total_items/page_size)" in compact_answer
     )
     assert "readme" in normalized_answer
     assert _contains_any(

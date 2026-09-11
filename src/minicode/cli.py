@@ -37,6 +37,8 @@ class _CliConfigurationError(ValueError):
 async def _run_coding_task(
     task: str,
     *,
+    max_turns: int,
+    max_tool_calls: int,
     event_ledger: EventLedger | None = None,
     artifact_store: ArtifactStore | None = None,
 ) -> RunResult:
@@ -62,6 +64,8 @@ async def _run_coding_task(
             approver=ConsoleToolApprover(),
             event_ledger=event_ledger,
             artifact_store=artifact_store,
+            max_turns=max_turns,
+            max_tool_calls=max_tool_calls,
         )
 
         return await agent.run(task)
@@ -103,6 +107,19 @@ def _print_trace(
         )
 
 
+def _positive_integer(value: str) -> int:
+    """Parse one positive CLI integer."""
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a positive integer") from error
+
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -133,6 +150,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the ordered execution trace.",
     )
+    run_parser.add_argument(
+        "--max-turns",
+        type=_positive_integer,
+        default=8,
+        help="Maximum model turns (default: 8).",
+    )
+    run_parser.add_argument(
+        "--max-tool-calls",
+        type=_positive_integer,
+        default=8,
+        help="Maximum model-requested tool calls (default: 8).",
+    )
 
     return parser
 
@@ -158,6 +187,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = asyncio.run(
                     _run_coding_task(
                         args.task,
+                        max_turns=args.max_turns,
+                        max_tool_calls=args.max_tool_calls,
                         event_ledger=event_ledger,
                         artifact_store=artifact_store,
                     )

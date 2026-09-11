@@ -21,15 +21,23 @@ def test_dry_run_reports_task_without_execution(capsys) -> None:
 
 
 def test_run_executes_coding_task_and_prints_trace(monkeypatch, capsys) -> None:
-    received_tasks: list[str] = []
+    received_calls: list[tuple[str, int, int]] = []
 
     async def run_coding_task(
         task: str,
         *,
+        max_turns: int,
+        max_tool_calls: int,
         event_ledger,
         artifact_store,
     ) -> RunResult:
-        received_tasks.append(task)
+        received_calls.append(
+            (
+                task,
+                max_turns,
+                max_tool_calls,
+            )
+        )
         event_ledger.record(
             EventKind.RUN_STARTED,
             {"initial_history_items": 1},
@@ -67,12 +75,28 @@ def test_run_executes_coding_task_and_prints_trace(monkeypatch, capsys) -> None:
         run_coding_task,
     )
 
-    exit_code = cli.main(["run", "修复测试", "--trace"])
+    exit_code = cli.main(
+        [
+            "run",
+            "修复测试",
+            "--trace",
+            "--max-turns",
+            "3",
+            "--max-tool-calls",
+            "4",
+        ]
+    )
 
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert received_tasks == ["修复测试"]
+    assert received_calls == [
+        (
+            "修复测试",
+            3,
+            4,
+        )
+    ]
     assert captured.out == "测试已经修复。\n"
     assert "Trace run_" in captured.err
     assert '001 run_started {"initial_history_items": 1}' in captured.err
@@ -87,10 +111,12 @@ def test_run_reports_model_failure_with_trace(
     async def run_coding_task(
         task: str,
         *,
+        max_turns: int,
+        max_tool_calls: int,
         event_ledger,
         artifact_store,
     ) -> RunResult:
-        del task, artifact_store
+        del task, max_turns, max_tool_calls, artifact_store
         event_ledger.record(
             EventKind.RUN_STARTED,
             {},
@@ -170,6 +196,8 @@ async def test_run_coding_task_closes_client_when_agent_fails(
     ):
         await cli._run_coding_task(
             "修复测试",
+            max_turns=8,
+            max_tool_calls=8,
         )
 
     assert client.closed is True

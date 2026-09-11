@@ -10,6 +10,19 @@
 minicode run "修复失败的测试" --trace
 ```
 
+默认最多进行 8 轮模型调用并处理 8 个模型请求的 ToolCall。调用者可以显式收紧预算：
+
+```bash
+minicode run "修复失败的测试" \
+  --max-turns 4 \
+  --max-tool-calls 6 \
+  --trace
+```
+
+CLI 只接受正整数，并将两个值传给现有的 QueryLoop 预算检查。ToolCall 即使被 Policy
+拒绝，也已经由模型提出并被循环处理，因此仍占用 ToolCall 预算；它不等同于真正进入
+`tool_execution_started` 的工具执行次数。
+
 会经过：
 
 ```text

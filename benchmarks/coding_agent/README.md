@@ -23,17 +23,11 @@
 project_root=$PWD
 case_name=single_file_batching
 case_root="$project_root/benchmarks/coding_agent/cases/$case_name"
-evaluation_workspace=$(mktemp -d "/tmp/minicode-eval-$case_name.XXXXXX")
+evaluation_workspace=$(
+  "$project_root/.venv/bin/python" -m minicode.evaluation_prepare \
+    --case-root "$case_root"
+)
 result_directory=$(mktemp -d "/tmp/minicode-result-$case_name.XXXXXX")
-
-cp -R "$case_root/workspace/." "$evaluation_workspace"
-
-git -C "$evaluation_workspace" init -q
-git -C "$evaluation_workspace" add .
-git -C "$evaluation_workspace" \
-  -c user.name="MiniCode Evaluation" \
-  -c user.email="evaluation@example.invalid" \
-  commit -q -m "evaluation baseline"
 
 cd "$evaluation_workspace"
 "$project_root/.venv/bin/python" -m minicode.evaluation_run \
@@ -42,6 +36,11 @@ cd "$evaluation_workspace"
   2> >(tee "$result_directory/trace.txt" >&2)
 agent_exit_code=$?
 ```
+
+`evaluation_prepare` 创建一个新的临时目录，只复制 Case 的 `workspace/`，然后初始化
+Git 并提交 `evaluation baseline`。它不会复制 `case.json`、`task.txt` 或隐藏的
+`acceptance.py`，输出的唯一一行是临时工作区路径，供 Shell 保存到
+`evaluation_workspace`。
 
 `evaluation_run` 从 `task.txt` 读取模型任务，从 `case.json` 读取 `max_turns` 和
 `max_tool_calls`，再调用现有的 `minicode run`。它始终以执行命令时的当前目录作为

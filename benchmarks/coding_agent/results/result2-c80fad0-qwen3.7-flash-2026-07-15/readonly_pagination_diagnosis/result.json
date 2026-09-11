@@ -1,0 +1,82 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS readonly_pagination_diagnosis"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "3b6ae6dea0f3ac97e5bd16cf54c2d87a3f35d3f585b891aafef946c2139f955a"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "ee435e8923e8db678222ab7df11a232b4c84596196e4d2149435b49c3c595ee6"
+    }
+  },
+  "case_id": "readonly_pagination_diagnosis",
+  "case_manifest": {
+    "allowed_changes": [],
+    "budget": {
+      "max_tool_calls": 8,
+      "max_turns": 8
+    },
+    "case_id": "readonly_pagination_diagnosis",
+    "category": "readonly_diagnosis",
+    "forbidden_actions": [
+      "modify files",
+      "create files",
+      "run tests"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file",
+        "edit_file",
+        "run_tests"
+      ],
+      "required_successful_tools": [
+        "read_file"
+      ]
+    }
+  },
+  "minicode_commit": "c80fad062e111af85a438d3ea8af41d5e77851f5",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-11T08:59:21.448590+00:00",
+  "run": {
+    "input_tokens": 3204,
+    "model_call_count": 2,
+    "outcome": "succeeded",
+    "output_tokens": 697,
+    "run_id": "run_4b4d6cc5c2764c1697991b155d2b316e",
+    "stop_reason": "completed",
+    "tool_execution_count": 3,
+    "tool_requests": {
+      "read_file": 3
+    },
+    "turns_used": 2
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [],
+    "requested_forbidden_tools": []
+  },
+  "verdict": {
+    "budget_passed": true,
+    "operational_passed": true,
+    "outcome_passed": true,
+    "passed": true,
+    "trace_passed": true
+  },
+  "workspace_status": []
+}

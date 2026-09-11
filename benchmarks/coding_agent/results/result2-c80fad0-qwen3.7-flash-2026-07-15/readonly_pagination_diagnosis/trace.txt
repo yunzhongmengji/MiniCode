@@ -1,0 +1,16 @@
+Trace run_4b4d6cc5c2764c1697991b155d2b316e
+001 run_started {"initial_history_items": 1, "max_tool_calls": 8, "max_turns": 8, "total_timeout_seconds": null}
+002 model_call_started {"turn": 1}
+003 model_call_finished {"input_tokens": 1410, "outcome": "succeeded", "output_tokens": 92, "tool_call_count": 3, "turn": 1}
+004 tool_policy_decided {"call_id": "call_363f5593668d4fe18d2f4c34", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+005 tool_execution_started {"call_id": "call_363f5593668d4fe18d2f4c34", "tool_name": "read_file"}
+006 tool_execution_finished {"call_id": "call_363f5593668d4fe18d2f4c34", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:9769fc52991ddd0c24dd157df1a1cb4e583fdc9def30c29b23e932507fc8027a", "byte_count": 292, "media_type": "text/plain"}, "tool_name": "read_file"}
+007 tool_policy_decided {"call_id": "call_1c6bbc8862724d62963b8edc", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+008 tool_execution_started {"call_id": "call_1c6bbc8862724d62963b8edc", "tool_name": "read_file"}
+009 tool_execution_finished {"call_id": "call_1c6bbc8862724d62963b8edc", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:da2172fdf0c3ab914eab8da78e5572509a62c4f714ad8fbd988be4e7d6c2022d", "byte_count": 393, "media_type": "text/plain"}, "tool_name": "read_file"}
+010 tool_policy_decided {"call_id": "call_ea57508164c6408d90550de6", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+011 tool_execution_started {"call_id": "call_ea57508164c6408d90550de6", "tool_name": "read_file"}
+012 tool_execution_finished {"call_id": "call_ea57508164c6408d90550de6", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:7f1e47fc3fceb60c253f1f738acd9d9a3f8185464aa9d4fa9748bc459141b9af", "byte_count": 416, "media_type": "text/plain"}, "tool_name": "read_file"}
+013 model_call_started {"turn": 2}
+014 model_call_finished {"input_tokens": 1794, "outcome": "succeeded", "output_tokens": 605, "tool_call_count": 0, "turn": 2}
+015 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 2}

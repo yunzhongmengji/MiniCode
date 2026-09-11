@@ -16,6 +16,11 @@ The `search-driven-ccf6300-qwen3.7-flash-2026-07-15` batch contains the first
 formal run of `search_driven_retry_schedule`. It remains separate because the
 new case was introduced after the initial MiniCode commit.
 
+The `result2-c80fad0-qwen3.7-flash-2026-07-15` batch contains the first formal
+Result 2 run. Its read-only diagnosis is checked across outcome, operation,
+budget, and Trace dimensions after strengthening the case's structured ground
+truth.
+
 Summarize a batch from the repository root with:
 
 ```bash

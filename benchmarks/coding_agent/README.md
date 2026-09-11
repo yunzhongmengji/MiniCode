@@ -36,11 +36,17 @@ git -C "$evaluation_workspace" \
   commit -q -m "evaluation baseline"
 
 cd "$evaluation_workspace"
-minicode run "$(<"$case_root/task.txt")" --trace \
+"$project_root/.venv/bin/python" -m minicode.evaluation_run \
+  --case-root "$case_root" \
   > >(tee "$result_directory/answer.txt") \
   2> >(tee "$result_directory/trace.txt" >&2)
 agent_exit_code=$?
 ```
+
+`evaluation_run` 从 `task.txt` 读取模型任务，从 `case.json` 读取 `max_turns` 和
+`max_tool_calls`，再调用现有的 `minicode run`。它始终以执行命令时的当前目录作为
+Agent Workspace，因此上面的 `cd "$evaluation_workspace"` 不能省略。该入口只负责
+启动 Agent 和打印 Trace，不复制工作区、不运行隐藏验收，也不生成 `result.json`。
 
 模型运行结束后，返回 MiniCode 仓库并生成结果记录：
 

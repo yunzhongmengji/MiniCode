@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "case_id": "single_file_batching",
+  "category": "single_file_repair",
+  "ground_truth": {
+    "defined_by": "project_maintainer",
+    "evidence": [
+      "task.txt",
+      "acceptance.py"
+    ]
+  },
+  "allowed_changes": [
+    "batching.py"
+  ],
+  "forbidden_actions": [
+    "modify tests",
+    "create additional project files"
+  ],
+  "budget": {
+    "max_turns": 8,
+    "max_tool_calls": 8
+  }
+}

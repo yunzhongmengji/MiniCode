@@ -16,6 +16,10 @@ from typing import cast
 from minicode.core.events import EventKind, LedgerEvent
 from minicode.core.replay import RunReplay
 from minicode.core.tool_calls import JsonValue
+from minicode.evaluation_case import (
+    EvaluationBudget,
+    load_case_manifest,
+)
 
 
 def parse_trace(trace: str) -> RunReplay:
@@ -96,6 +100,42 @@ def summarize_trace(replay: RunReplay) -> dict[str, object]:
     }
 
 
+def build_evaluation_verdict(
+    *,
+    replay: RunReplay,
+    acceptance_exit_code: int,
+    agent_exit_code: int,
+    budget: EvaluationBudget,
+) -> dict[str, bool]:
+    """Combine result, operational, and budget checks."""
+    final_payload = replay.events[-1].payload if replay.is_finished else {}
+    stop_reason = final_payload.get("stop_reason")
+    turns_used = final_payload.get("turns_used")
+    tool_calls_used = sum(
+        _optional_integer(event, "tool_call_count")
+        for event in replay.events
+        if event.kind is EventKind.MODEL_CALL_FINISHED
+    )
+    outcome_passed = acceptance_exit_code == 0
+    operational_passed = (
+        agent_exit_code == 0
+        and replay.outcome == "succeeded"
+        and stop_reason == "completed"
+    )
+    budget_passed = (
+        type(turns_used) is int
+        and turns_used <= budget.max_turns
+        and tool_calls_used <= budget.max_tool_calls
+    )
+
+    return {
+        "outcome_passed": outcome_passed,
+        "operational_passed": operational_passed,
+        "budget_passed": budget_passed,
+        "passed": outcome_passed and operational_passed and budget_passed,
+    }
+
+
 def record_result(
     *,
     case_root: Path,
@@ -112,6 +152,7 @@ def record_result(
     resolved_answer = answer_path.resolve(strict=True)
     resolved_trace = trace_path.resolve(strict=True)
     resolved_output = output_path.resolve(strict=False)
+    case_manifest = load_case_manifest(resolved_case_root)
 
     if not model.strip():
         raise ValueError("model must not be blank")
@@ -136,10 +177,19 @@ def record_result(
         capture_output=True,
         text=True,
     )
+    verdict = build_evaluation_verdict(
+        replay=replay,
+        acceptance_exit_code=acceptance.returncode,
+        agent_exit_code=agent_exit_code,
+        budget=case_manifest.budget,
+    )
     project_root = Path(__file__).resolve().parents[2]
     result = {
         "schema_version": 1,
-        "case_id": resolved_case_root.name,
+        "case_id": case_manifest.case_id,
+        "case_manifest": case_manifest.model_dump(
+            mode="json",
+        ),
         "recorded_at_utc": datetime.now(UTC).isoformat(),
         "model": model,
         "minicode_commit": _git_stdout(
@@ -154,6 +204,7 @@ def record_result(
         ),
         "agent_exit_code": agent_exit_code,
         "accepted": acceptance.returncode == 0,
+        "verdict": verdict,
         "acceptance": {
             "exit_code": acceptance.returncode,
             "stdout": acceptance.stdout.strip(),

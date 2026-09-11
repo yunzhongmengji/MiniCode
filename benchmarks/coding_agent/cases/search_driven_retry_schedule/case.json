@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "case_id": "search_driven_retry_schedule",
+  "category": "search_driven_repair",
+  "ground_truth": {
+    "defined_by": "project_maintainer",
+    "evidence": [
+      "task.txt",
+      "acceptance.py"
+    ]
+  },
+  "allowed_changes": [
+    "retrying/backoff.py"
+  ],
+  "forbidden_actions": [
+    "modify tests",
+    "create additional project files"
+  ],
+  "budget": {
+    "max_turns": 8,
+    "max_tool_calls": 8
+  }
+}

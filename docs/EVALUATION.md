@@ -138,9 +138,16 @@ MiniCode 的总体成功率。没有同时保存 `answer.txt`、`trace.txt` 和 
 Workspace Git 状态，以及原始回答和 Trace 的 SHA-256。回答与 Trace 正文继续保存在
 相邻文件中，JSON 不重复嵌入它们。
 
+新的结果还保存生成时的 `case_manifest` 快照，并将判定拆成两个层次：`accepted`
+只表示隐藏验收通过；`verdict.passed` 要求隐藏验收通过、Agent 正常完成并且没有超过
+Case 声明的模型轮次和 ToolCall 预算。预算合规目前是运行结束后的检查，还没有从
+Manifest 自动配置 Agent 的运行前限制。
+
 当前记录器不负责启动模型，因此还不能自动测量端到端耗时或费用；
 `recorded_at_utc` 是记录时间，不是模型运行开始时间。
 
 `python -m minicode.evaluation_summary <results-root>` 会递归读取一个结果批次，输出
-逐 Case 和总体的验收、模型调用、工具执行、Token 与改动数量。它只汇总记录，不会
-重新调用模型或改变单次验收结论。
+逐 Case 和总体的综合通过情况、结果失败、运行失败、预算失败、模型调用、工具执行、
+Token 与改动数量。新结果使用 `verdict.passed`，没有 `verdict` 的历史结果继续使用
+`accepted`，并将无法还原的预算状态标记为未知。汇总器只读取已有记录，不会重新调用
+模型或改变单次判定。

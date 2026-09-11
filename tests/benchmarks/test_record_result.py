@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from minicode.evaluation_case import EvaluationBudget
 from minicode.evaluation_result import (
+    build_evaluation_verdict,
     parse_trace,
     record_result,
     summarize_trace,
@@ -71,6 +73,49 @@ def test_trace_parser_reuses_validated_replay_summary() -> None:
     }
 
 
+def test_verdict_separates_accepted_result_from_operational_failure() -> None:
+    verdict = build_evaluation_verdict(
+        replay=parse_trace(_TRACE),
+        acceptance_exit_code=0,
+        agent_exit_code=1,
+        budget=EvaluationBudget(
+            max_turns=1,
+            max_tool_calls=1,
+        ),
+    )
+
+    assert verdict == {
+        "outcome_passed": True,
+        "operational_passed": False,
+        "budget_passed": True,
+        "passed": False,
+    }
+
+
+def test_verdict_reports_a_run_over_its_turn_budget() -> None:
+    replay = parse_trace(
+        _TRACE.replace(
+            '"turns_used": 1',
+            '"turns_used": 2',
+        )
+    )
+
+    assert build_evaluation_verdict(
+        replay=replay,
+        acceptance_exit_code=0,
+        agent_exit_code=0,
+        budget=EvaluationBudget(
+            max_turns=1,
+            max_tool_calls=1,
+        ),
+    ) == {
+        "outcome_passed": True,
+        "operational_passed": True,
+        "budget_passed": False,
+        "passed": False,
+    }
+
+
 @pytest.mark.parametrize(
     ("acceptance_source", "expected_accepted"),
     (
@@ -91,6 +136,28 @@ def test_result_recorder_preserves_success_and_failure_results(
 ) -> None:
     case_root = tmp_path / "case"
     case_root.mkdir()
+    (case_root / "case.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "case_id": "case",
+                "category": "fixture",
+                "ground_truth": {
+                    "defined_by": "test",
+                    "evidence": [
+                        "acceptance.py",
+                    ],
+                },
+                "allowed_changes": [],
+                "forbidden_actions": [],
+                "budget": {
+                    "max_turns": 1,
+                    "max_tool_calls": 1,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (case_root / "acceptance.py").write_text(
         acceptance_source,
         encoding="utf-8",
@@ -125,8 +192,24 @@ def test_result_recorder_preserves_success_and_failure_results(
     result = json.loads(output_path.read_text(encoding="utf-8"))
     assert accepted is expected_accepted
     assert result["accepted"] is expected_accepted
+    assert result["verdict"] == {
+        "outcome_passed": expected_accepted,
+        "operational_passed": True,
+        "budget_passed": True,
+        "passed": expected_accepted,
+    }
     assert result["acceptance"]["exit_code"] == (0 if expected_accepted else 1)
     assert result["case_id"] == "case"
+    assert result["case_manifest"]["ground_truth"] == {
+        "defined_by": "test",
+        "evidence": [
+            "acceptance.py",
+        ],
+    }
+    assert result["case_manifest"]["budget"] == {
+        "max_turns": 1,
+        "max_tool_calls": 1,
+    }
     assert result["model"] == "test-model"
     assert result["run"]["input_tokens"] == 12
     assert result["artifacts"]["answer"]["sha256"]

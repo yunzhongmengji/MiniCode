@@ -13,7 +13,10 @@ from typing import cast
 @dataclass(frozen=True, slots=True)
 class _RecordedEvaluation:
     case_id: str
-    accepted: bool
+    outcome_passed: bool
+    operational_passed: bool
+    budget_passed: bool | None
+    passed: bool
     agent_exit_code: int
     model: str
     minicode_commit: str
@@ -35,7 +38,7 @@ def summarize_results(results_root: Path) -> str:
 
     results = tuple(_load_result(path) for path in result_paths)
     rows = [
-        "| Case | Accepted | Model calls | Tool executions | Input tokens | Output tokens | Changes |",
+        "| Case | Passed | Model calls | Tool executions | Input tokens | Output tokens | Changes |",
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
 
@@ -43,7 +46,7 @@ def summarize_results(results_root: Path) -> str:
         rows.append(
             "| "
             f"{result.case_id} | "
-            f"{'yes' if result.accepted else 'no'} | "
+            f"{'yes' if result.passed else 'no'} | "
             f"{result.model_call_count} | "
             f"{result.tool_execution_count} | "
             f"{result.input_tokens} | "
@@ -51,12 +54,12 @@ def summarize_results(results_root: Path) -> str:
             f"{result.workspace_change_count} |"
         )
 
-    accepted_count = sum(result.accepted for result in results)
-    operational_failure_count = sum(
-        result.agent_exit_code != 0 or result.run_outcome != "succeeded"
-        for result in results
-    )
-    rate = accepted_count / len(results) * 100
+    passed_count = sum(result.passed for result in results)
+    outcome_failure_count = sum(not result.outcome_passed for result in results)
+    operational_failure_count = sum(not result.operational_passed for result in results)
+    budget_failure_count = sum(result.budget_passed is False for result in results)
+    unknown_budget_count = sum(result.budget_passed is None for result in results)
+    rate = passed_count / len(results) * 100
     models = ", ".join(sorted({result.model for result in results}))
     commits = ", ".join(sorted({result.minicode_commit[:7] for result in results}))
 
@@ -64,8 +67,11 @@ def summarize_results(results_root: Path) -> str:
         (
             "",
             f"- Runs: {len(results)}",
-            f"- Accepted: {accepted_count}/{len(results)} ({rate:.1f}%)",
+            f"- Passed: {passed_count}/{len(results)} ({rate:.1f}%)",
+            f"- Outcome failures: {outcome_failure_count}",
             f"- Operational failures: {operational_failure_count}",
+            f"- Budget failures: {budget_failure_count}",
+            f"- Legacy results without budget verdict: {unknown_budget_count}",
             f"- Dirty MiniCode runs: {sum(result.minicode_dirty for result in results)}",
             f"- Total model calls: {sum(result.model_call_count for result in results)}",
             f"- Total tool executions: {sum(result.tool_execution_count for result in results)}",
@@ -93,6 +99,48 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         )
 
     run = _required_mapping(result, "run", path)
+    accepted = _required_boolean(result, "accepted", path)
+    agent_exit_code = _required_integer(result, "agent_exit_code", path)
+    run_outcome = _required_string(run, "outcome", path)
+    verdict = result.get("verdict")
+
+    if verdict is None:
+        outcome_passed = accepted
+        operational_passed = agent_exit_code == 0 and run_outcome == "succeeded"
+        budget_passed = None
+        passed = accepted
+    else:
+        if not isinstance(verdict, Mapping):
+            raise TypeError(f"verdict must be an object: {path}")
+
+        typed_verdict = cast(Mapping[str, object], verdict)
+        outcome_passed = _required_boolean(
+            typed_verdict,
+            "outcome_passed",
+            path,
+        )
+        operational_passed = _required_boolean(
+            typed_verdict,
+            "operational_passed",
+            path,
+        )
+        budget_passed = _required_boolean(
+            typed_verdict,
+            "budget_passed",
+            path,
+        )
+        passed = _required_boolean(
+            typed_verdict,
+            "passed",
+            path,
+        )
+
+        if outcome_passed != accepted:
+            raise ValueError(f"verdict outcome disagrees with accepted: {path}")
+
+        if passed != (outcome_passed and operational_passed and budget_passed):
+            raise ValueError(f"verdict passed is inconsistent: {path}")
+
     workspace_status = result.get("workspace_status")
 
     if not isinstance(workspace_status, list):
@@ -100,12 +148,15 @@ def _load_result(path: Path) -> _RecordedEvaluation:
 
     return _RecordedEvaluation(
         case_id=_required_string(result, "case_id", path),
-        accepted=_required_boolean(result, "accepted", path),
-        agent_exit_code=_required_integer(result, "agent_exit_code", path),
+        outcome_passed=outcome_passed,
+        operational_passed=operational_passed,
+        budget_passed=budget_passed,
+        passed=passed,
+        agent_exit_code=agent_exit_code,
         model=_required_string(result, "model", path),
         minicode_commit=_required_string(result, "minicode_commit", path),
         minicode_dirty=_required_boolean(result, "minicode_dirty", path),
-        run_outcome=_required_string(run, "outcome", path),
+        run_outcome=run_outcome,
         model_call_count=_required_integer(run, "model_call_count", path),
         tool_execution_count=_required_integer(
             run,

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "case_id": "readonly_pagination_diagnosis",
+  "category": "readonly_diagnosis",
+  "ground_truth": {
+    "defined_by": "project_maintainer",
+    "evidence": [
+      "task.txt",
+      "acceptance.py"
+    ]
+  },
+  "allowed_changes": [],
+  "forbidden_actions": [
+    "modify files",
+    "create files",
+    "run tests"
+  ],
+  "budget": {
+    "max_turns": 8,
+    "max_tool_calls": 8
+  }
+}

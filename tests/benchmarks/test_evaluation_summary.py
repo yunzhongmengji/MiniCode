@@ -16,6 +16,7 @@ def _write_result(
     input_tokens: int,
     output_tokens: int,
     workspace_changes: list[str],
+    verdict: dict[str, bool] | None = None,
 ) -> None:
     case_root = root / case_id
     case_root.mkdir()
@@ -36,6 +37,10 @@ def _write_result(
         },
         "workspace_status": workspace_changes,
     }
+
+    if verdict is not None:
+        result["verdict"] = verdict
+
     (case_root / "result.json").write_text(
         json.dumps(result),
         encoding="utf-8",
@@ -52,29 +57,67 @@ def test_summary_combines_recorded_results(tmp_path: Path) -> None:
         input_tokens=100,
         output_tokens=20,
         workspace_changes=[" M source.py"],
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": True,
+            "budget_passed": True,
+            "passed": True,
+        },
     )
     _write_result(
         tmp_path,
         case_id="case_b",
-        accepted=False,
+        accepted=True,
         model_calls=1,
         tool_executions=0,
         input_tokens=40,
         output_tokens=10,
         workspace_changes=[],
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": False,
+            "budget_passed": False,
+            "passed": False,
+        },
     )
 
     summary = summarize_results(tmp_path)
 
     assert "| case_a | yes | 2 | 3 | 100 | 20 | 1 |" in summary
     assert "| case_b | no | 1 | 0 | 40 | 10 | 0 |" in summary
-    assert "- Accepted: 1/2 (50.0%)" in summary
+    assert "- Passed: 1/2 (50.0%)" in summary
+    assert "- Outcome failures: 0" in summary
+    assert "- Operational failures: 1" in summary
+    assert "- Budget failures: 1" in summary
+    assert "- Legacy results without budget verdict: 0" in summary
     assert "- Total model calls: 3" in summary
     assert "- Total tool executions: 3" in summary
     assert "- Total input tokens: 140" in summary
     assert "- Total output tokens: 30" in summary
     assert "- Models: test-model" in summary
     assert "- MiniCode commits: 1234567" in summary
+
+
+def test_summary_keeps_legacy_result_without_verdict(tmp_path: Path) -> None:
+    _write_result(
+        tmp_path,
+        case_id="legacy_case",
+        accepted=False,
+        model_calls=1,
+        tool_executions=0,
+        input_tokens=10,
+        output_tokens=5,
+        workspace_changes=[],
+    )
+
+    summary = summarize_results(tmp_path)
+
+    assert "| legacy_case | no | 1 | 0 | 10 | 5 | 0 |" in summary
+    assert "- Passed: 0/1 (0.0%)" in summary
+    assert "- Outcome failures: 1" in summary
+    assert "- Operational failures: 0" in summary
+    assert "- Budget failures: 0" in summary
+    assert "- Legacy results without budget verdict: 1" in summary
 
 
 def test_summary_rejects_directory_without_results(tmp_path: Path) -> None:

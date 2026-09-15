@@ -5,17 +5,17 @@ from minicode.core.tool_calls import ToolCall
 
 
 @pytest.mark.asyncio
-async def test_console_approver_shows_exact_call_and_fails_closed() -> None:
+async def test_console_approver_shows_exact_call_on_stderr_and_fails_closed(
+    capsys,
+) -> None:
     answers = iter(
         (
             " YES ",
             "anything else",
         )
     )
-    prompts: list[str] = []
 
-    def read_input(prompt: str) -> str:
-        prompts.append(prompt)
+    def read_input() -> str:
         return next(answers)
 
     approver = ConsoleToolApprover(
@@ -44,11 +44,13 @@ async def test_console_approver_shows_exact_call_and_fails_closed() -> None:
         tool_call,
         reason="workspace changes require approval",
     )
+    captured = capsys.readouterr()
 
     assert approved is True
     assert denied is False
-    assert len(prompts) == 2
-    assert "Tool: edit_file" in prompts[0]
-    assert '"path": "计算器.py"' in prompts[0]
-    assert ('"metadata": {"related_paths": ["tests/test_计算器.py"]}') in prompts[0]
-    assert "workspace changes require approval" in prompts[0]
+    assert captured.out == ""
+    assert captured.err.count("Tool approval required") == 2
+    assert "Tool: edit_file" in captured.err
+    assert '"path": "计算器.py"' in captured.err
+    assert '"metadata": {"related_paths": ["tests/test_计算器.py"]}' in captured.err
+    assert "workspace changes require approval" in captured.err

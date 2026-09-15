@@ -461,3 +461,8 @@
   stdout，而评测把 stdout 保存为 `answer.txt`，导致 Answer 混入三段审批文本。隐藏验收、
   Trace 和 Token 未因此改变，原始工件也不能事后清洗；但正式实验必须先将提示分流到 stderr
   并用回归测试证明 Answer 只含模型最终回复。
+- 输出分流修复：审批器先用 `print(..., file=sys.stderr, flush=True)` 展示完整调用，再在线程中
+  调用无参数 `input()` 读取 stdin。`input_reader` 的测试接口也改为零参数，从类型上避免读取
+  函数再次负责展示提示。新测试断言 stdout 为空且 stderr 包含两次完整审批；原 CLI 测试断言
+  stdout 只有最终模型回答、Run ID 与 Trace 在 stderr。原始 Preflight Answer 保留污染事实，
+  不通过事后清洗伪造当时证据。

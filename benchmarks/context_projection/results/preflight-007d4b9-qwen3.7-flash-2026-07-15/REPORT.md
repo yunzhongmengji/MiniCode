@@ -35,5 +35,9 @@ Preflight 还发现 `answer.txt` 混入了人工审批提示。`ConsoleToolAppro
 “Answer Artifact 只表示模型最终回答”的证据语义，必须在正式实验前把审批提示改到 stderr，
 并增加回归测试。修复前不进入正式 12-run 阶段。
 
+后续实现已将审批提示与输入读取拆开：提示明确写入 stderr，无提示的 `input()` 只从 stdin
+读取答案。回归测试同时断言审批提示不出现在 stdout，原有 CLI 测试继续断言 stdout 只包含
+模型最终回答。这里保存的 Preflight 原始文件不追溯修改。
+
 两次运行合计 17606 input Token、841 output Token，低于预注册 Preflight 上限
 30000/5000。

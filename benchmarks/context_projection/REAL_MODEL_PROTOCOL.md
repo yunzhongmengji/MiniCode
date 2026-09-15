@@ -1,6 +1,6 @@
 # Context Projection 真实模型小样本协议
 
-状态：真实模型 Preflight 已完成并发现 Answer 捕获污染；正式 12-run 实验暂停。
+状态：真实模型 Preflight 已完成，发现的 Answer 捕获污染已修复；正式 12-run 实验尚未运行。
 
 机器可读配置见 `real_model_protocol.json`。本协议先固定问题、样本、指标、预算和停止条件，
 再实现运行入口；不能根据跑出的结果事后更换有利口径。
@@ -129,4 +129,5 @@ projection 在两个模型轮次累计减少 822 个内部投影 bytes，但新�
 
 此外，两份 `answer.txt` 都混入了人工 Tool Approval 提示。原因是审批输入提示写到 stdout，
 与模型最终回答共用评测捕获流。原始 Artifact 与哈希保留不改，但正式实验必须等提示改写到
-stderr 并有回归测试后才能开始。
+stderr 并有回归测试后才能开始。后续修复已把提示明确写入 stderr，并让输入函数只读取 stdin；
+测试分别锁定审批提示和最终回答所在的输出流，原始 Preflight Artifact 不追溯修改。

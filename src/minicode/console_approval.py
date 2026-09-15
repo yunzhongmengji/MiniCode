@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from collections.abc import Callable, Mapping
 
 from minicode.core.tool_calls import JsonValue, ToolCall
@@ -26,7 +27,7 @@ class ConsoleToolApprover:
     def __init__(
         self,
         *,
-        input_reader: Callable[[str], str] = input,
+        input_reader: Callable[[], str] = input,
     ) -> None:
         self._input_reader = input_reader
 
@@ -49,9 +50,14 @@ class ConsoleToolApprover:
             f"Reason: {reason}\n"
             "Approve? [y/N]: "
         )
+        print(
+            prompt,
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
         answer = await asyncio.to_thread(
             self._input_reader,
-            prompt,
         )
 
         if not isinstance(answer, str):

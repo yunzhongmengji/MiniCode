@@ -206,3 +206,8 @@ bytes，成为历史结果后，扣除 501-byte 条件式回读 Tool Spec 仍使
 原文，SearchTextTool 仍只执行一次；七轮投影数为 `0,0,0,1,1,1,1`，最新回读结果不被压缩。
 这证明恢复通道可靠，但 ScriptedModel 不证明真实模型能自主决定回读。下一小步先设计最终答案
 必须使用早期证据的独立隐藏验收 Case，再预注册真实协议。
+
+独立 `large_search_context_recall` Case 已建立：它与 repair Case 的初始 Workspace 完全一致，
+但最终答案必须报告早期搜索证据中的客户端数量、首项和末项；隐藏验收拒绝漏答、错误修复和
+第二次成功的文本搜索。它不强制具体回忆机制，避免把 projection 专属工具写进 baseline 验收。下一小步用
+两条 Scripted 路径分别验证 baseline 直接保留与 projection 引用回读。

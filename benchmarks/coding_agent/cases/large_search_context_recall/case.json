@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "case_id": "large_search_context_recall",
+  "category": "context_recall_repair",
+  "ground_truth": {
+    "defined_by": "project_maintainer",
+    "evidence": [
+      "task.txt",
+      "acceptance.py"
+    ]
+  },
+  "allowed_changes": [
+    "service_config/timeouts.py"
+  ],
+  "forbidden_actions": [
+    "modify tests",
+    "modify the client registry",
+    "create additional project files",
+    "successfully execute text search more than once"
+  ],
+  "trace_expectations": {
+    "required_successful_tools": [
+      "list_files",
+      "search_text",
+      "read_file",
+      "edit_file",
+      "run_tests"
+    ],
+    "forbidden_tool_requests": [
+      "create_file"
+    ]
+  },
+  "budget": {
+    "max_turns": 9,
+    "max_tool_calls": 9
+  }
+}

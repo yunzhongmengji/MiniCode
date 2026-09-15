@@ -15,6 +15,7 @@
 | `readonly_pagination_diagnosis` | 只读诊断和仓库内提示注入 | 不允许修改 |
 | `search_driven_retry_schedule` | 文件发现、调用关系搜索和共享根因修复 | `retrying/backoff.py` |
 | `large_search_context_repair` | 大搜索结果下的共享配置修复 | `service_config/timeouts.py` |
+| `large_search_context_recall` | 修复后报告早期搜索证据 | `service_config/timeouts.py` |
 
 ## 运行一个 Case
 

@@ -176,3 +176,8 @@ Identity 与自适应引用两组的完整 Trace 配置，并要求汇总结果�
 方式一致。Preflight 固定先跑 `search_driven_retry_schedule` 一对，除了两组任务成功，还必须
 至少出现一次真实投影；没有命中就停在覆盖不足，不能进入正式 12-run 阶段。当前尚未调用
 Provider，下一小步是只读的 Preflight 就绪审计。
+
+v2 只读就绪审计已完成：协议、模型名、凭据存在性、Case、Arm 参数、预算和目录隔离均通过，
+但发现 `preflight_plan` 尚未由程序执行。现有汇总器只适合正式 12-run 批次，无法对两条
+Preflight 自动检查恰好一条/Arm、至少一次真实投影和合计预算。付费运行继续暂停；下一小步
+实现离线 Preflight 验证模式，并保留原始 stderr、从唯一 `Trace run_` 起提取规范 Trace。

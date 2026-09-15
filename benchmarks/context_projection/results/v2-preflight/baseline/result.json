@@ -1,0 +1,119 @@
+{
+  "acceptance": {
+    "exit_code": 1,
+    "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 6, in <module>\nAssertionError\nTraceback (most recent call last):\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/search_driven_retry_schedule/acceptance.py\", line 112, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/search_driven_retry_schedule/acceptance.py\", line 103, in main\n    verify(\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/search_driven_retry_schedule/acceptance.py\", line 83, in verify\n    _verify_behavior(workspace)\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/search_driven_retry_schedule/acceptance.py\", line 67, in _verify_behavior\n    subprocess.run(\n  File \"/home/songshihao/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/subprocess.py\", line 571, in run\n    raise CalledProcessError(retcode, process.args,\nsubprocess.CalledProcessError: Command '('/home/songshihao/projects/MyCode/.venv/bin/python', '-c', '\\nfrom retrying.backoff import exponential_delays\\nfrom retrying.notifications import notification_retry_delays\\nfrom retrying.orders import order_retry_delays\\n\\nassert exponential_delays(0) == ()\\nassert exponential_delays(4) == (1, 2, 4, 8)\\nassert exponential_delays(3, base_seconds=3) == (3, 6, 12)\\nassert order_retry_delays(3) == (1, 2, 4)\\nassert notification_retry_delays(2) == (1, 2)\\n')' returned non-zero exit status 1.",
+    "stdout": ""
+  },
+  "accepted": false,
+  "agent_exit_code": 1,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "32e30f911383950bd4e12fd8287409a0182d6a0da9eb31f82d5f117a0e1ba9fe"
+    },
+    "workspace_patch": {
+      "file": "workspace.patch",
+      "sha256": "0e2147541378c0f6c6621aab261a50e1e272c7133ddc31eb31b434d261620753"
+    }
+  },
+  "case_id": "search_driven_retry_schedule",
+  "case_manifest": {
+    "allowed_changes": [
+      "retrying/backoff.py"
+    ],
+    "budget": {
+      "max_tool_calls": 8,
+      "max_turns": 8
+    },
+    "case_id": "search_driven_retry_schedule",
+    "category": "search_driven_repair",
+    "forbidden_actions": [
+      "modify tests",
+      "create additional project files"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file"
+      ],
+      "required_successful_tools": [
+        "list_files",
+        "search_text",
+        "edit_file",
+        "run_tests"
+      ]
+    }
+  },
+  "context_experiment": {
+    "arm": "baseline",
+    "max_inline_tool_result_bytes": null,
+    "metrics": {
+      "cancelled_readback_count": 0,
+      "canonical_bytes": 48126,
+      "changed_tool_result_count": 0,
+      "failed_readback_count": 0,
+      "model_call_count": 7,
+      "model_visible_bytes": 48126,
+      "projection_bytes_saved": 0,
+      "successful_readback_count": 0
+    },
+    "protocol_id": "context-projection-adaptive-real-model-pilot-v2",
+    "trace_configuration": {
+      "configuration_schema_version": 2,
+      "max_inline_tool_result_bytes": null,
+      "minimum_net_savings_bytes": null,
+      "retrieval_tool_loading": null,
+      "strategy": "identity"
+    }
+  },
+  "minicode_commit": "86a3ddcea1e8ad904cad4acb1aab461c82ab4128",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-15T10:23:44.837117+00:00",
+  "run": {
+    "input_tokens": 13571,
+    "model_call_count": 7,
+    "outcome": "succeeded",
+    "output_tokens": 551,
+    "run_id": "run_ea2803001e7a40129e1701df25dccade",
+    "stop_reason": "max_tool_calls",
+    "tool_execution_count": 7,
+    "tool_requests": {
+      "edit_file": 1,
+      "list_files": 1,
+      "read_file": 3,
+      "run_tests": 1,
+      "search_text": 1
+    },
+    "turns_used": 7
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [
+      "run_tests"
+    ],
+    "requested_forbidden_tools": [],
+    "successful_test_after_last_change": false
+  },
+  "verdict": {
+    "budget_passed": false,
+    "operational_passed": false,
+    "outcome_passed": false,
+    "passed": false,
+    "trace_passed": false
+  },
+  "workspace_status": [
+    " M retrying/backoff.py"
+  ]
+}

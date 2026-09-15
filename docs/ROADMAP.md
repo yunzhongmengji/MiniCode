@@ -185,3 +185,9 @@ Preflight 自动检查恰好一条/Arm、至少一次真实投影和合计预算
 Preflight 离线验证模式现已完成：v2 Loader 会执行协议中的 Preflight Case、每 Arm 一条、投影
 活动、Usage/Artifact、回读与总 Token 预算约束；合法合成对照输出 PASS，证据可信但门禁不足
 输出 FAIL 且 CLI 返回 1，结构损坏则直接拒绝。当前仍未创建 v2 结果目录或调用 Provider。
+
+v2 真实 Preflight 已完成并按协议停止：baseline 任务失败，projection 任务成功但
+`changed_tool_result_count=0`，没有覆盖自适应投影核心路径；总 Token、回读、Usage、Artifact
+和协议快照门禁通过。原始证据保存在 `benchmarks/context_projection/results/v2-preflight/`，
+不能补跑覆盖。下一小步不执行正式 12-run，而是离线设计一个能稳定产生足够大历史 ToolResult
+的新 Coding Case，并在真实调用前预注册新协议 ID。

@@ -1,0 +1,117 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS search_driven_retry_schedule"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "9a4833c2914a04c96eab1f682069697f0b7a8612df95833333a54facbafb8346"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "39ea3b28996c86a5149da038c2b0ebf13f225887bc01989948c0ce6abe78745b"
+    },
+    "workspace_patch": {
+      "file": "workspace.patch",
+      "sha256": "d0160d7cc57381fc12b256bed55f4fa1f7650fba52cefeb27f150f4e7bca942c"
+    }
+  },
+  "case_id": "search_driven_retry_schedule",
+  "case_manifest": {
+    "allowed_changes": [
+      "retrying/backoff.py"
+    ],
+    "budget": {
+      "max_tool_calls": 8,
+      "max_turns": 8
+    },
+    "case_id": "search_driven_retry_schedule",
+    "category": "search_driven_repair",
+    "forbidden_actions": [
+      "modify tests",
+      "create additional project files"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file"
+      ],
+      "required_successful_tools": [
+        "list_files",
+        "search_text",
+        "edit_file",
+        "run_tests"
+      ]
+    }
+  },
+  "context_experiment": {
+    "arm": "projection",
+    "max_inline_tool_result_bytes": 500,
+    "metrics": {
+      "cancelled_readback_count": 0,
+      "canonical_bytes": 39604,
+      "changed_tool_result_count": 0,
+      "failed_readback_count": 0,
+      "model_call_count": 6,
+      "model_visible_bytes": 39604,
+      "projection_bytes_saved": 0,
+      "successful_readback_count": 0
+    },
+    "protocol_id": "context-projection-adaptive-real-model-pilot-v2",
+    "trace_configuration": {
+      "configuration_schema_version": 2,
+      "max_inline_tool_result_bytes": 500,
+      "minimum_net_savings_bytes": 1,
+      "retrieval_tool_loading": "on_reference",
+      "strategy": "tool_result_reference"
+    }
+  },
+  "minicode_commit": "86a3ddcea1e8ad904cad4acb1aab461c82ab4128",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-15T10:26:08.354805+00:00",
+  "run": {
+    "input_tokens": 11104,
+    "model_call_count": 6,
+    "outcome": "succeeded",
+    "output_tokens": 541,
+    "run_id": "run_03747f2e7c87433d865da0fa34bf0f7c",
+    "stop_reason": "completed",
+    "tool_execution_count": 8,
+    "tool_requests": {
+      "edit_file": 1,
+      "list_files": 1,
+      "read_file": 4,
+      "run_tests": 1,
+      "search_text": 1
+    },
+    "turns_used": 6
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [],
+    "requested_forbidden_tools": [],
+    "successful_test_after_last_change": true
+  },
+  "verdict": {
+    "budget_passed": true,
+    "operational_passed": true,
+    "outcome_passed": true,
+    "passed": true,
+    "trace_passed": true
+  },
+  "workspace_status": [
+    " M retrying/backoff.py"
+  ]
+}

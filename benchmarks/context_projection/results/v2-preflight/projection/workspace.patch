@@ -1,0 +1,14 @@
+diff --git a/retrying/backoff.py b/retrying/backoff.py
+index d7e66ec..ecabc8a 100644
+--- a/retrying/backoff.py
++++ b/retrying/backoff.py
+@@ -16,7 +16,7 @@ def exponential_delays(
+     return tuple(
+         base_seconds * 2**attempt
+         for attempt in range(
+-            1,
+-            attempts + 1,
++            0,
++            attempts,
+         )
+     )

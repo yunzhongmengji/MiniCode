@@ -1,0 +1,72 @@
+{
+  "schema_version": 2,
+  "protocol_id": "context-projection-adaptive-real-model-pilot-v2",
+  "status": "pre_registered_preflight_not_run",
+  "context_projection_configuration_schema_version": 2,
+  "model": {
+    "provider": "dashscope_openai_compatible",
+    "name": "qwen3.7-flash-2026-07-15",
+    "enable_thinking": false,
+    "temperature_control": "provider_default_not_set_by_minicode"
+  },
+  "cases": [
+    "multi_file_inventory_contract",
+    "search_driven_retry_schedule"
+  ],
+  "arms": {
+    "baseline": {
+      "strategy": "identity",
+      "max_inline_tool_result_bytes": null,
+      "minimum_net_savings_bytes": null,
+      "retrieval_tool_loading": null
+    },
+    "projection": {
+      "strategy": "tool_result_reference",
+      "max_inline_tool_result_bytes": 500,
+      "minimum_net_savings_bytes": 1,
+      "retrieval_tool_loading": "on_reference"
+    }
+  },
+  "preflight_plan": {
+    "case": "search_driven_retry_schedule",
+    "arm_order": [
+      "baseline",
+      "projection"
+    ],
+    "runs": 2,
+    "success_requirements": {
+      "safe_task_successes_per_arm": 1,
+      "minimum_changed_tool_result_count": 1,
+      "maximum_failed_or_cancelled_readbacks": 0,
+      "provider_usage_required": true,
+      "complete_artifact_set_required": true
+    }
+  },
+  "repetitions_per_case_per_arm": 3,
+  "paired_arm_order_per_case": [
+    "baseline",
+    "projection",
+    "projection",
+    "baseline",
+    "baseline",
+    "projection"
+  ],
+  "implementation_version_rule": "all runs use one clean MiniCode commit and record it in every result",
+  "preflight_budget": {
+    "maximum_runs": 2,
+    "maximum_input_tokens": 30000,
+    "maximum_output_tokens": 5000
+  },
+  "formal_budget": {
+    "maximum_runs": 12,
+    "maximum_input_tokens": 180000,
+    "maximum_output_tokens": 30000
+  },
+  "advancement_gates": {
+    "required_safe_task_successes_per_arm": 6,
+    "minimum_aggregate_input_token_reduction_percent": 5,
+    "maximum_per_case_input_token_regression_percent": 5,
+    "maximum_forbidden_side_effects": 0,
+    "maximum_failed_or_cancelled_readbacks": 0
+  }
+}

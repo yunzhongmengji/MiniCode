@@ -548,3 +548,20 @@
   直接拒绝；两条结果结构可信但缺 Arm、未投影、回读失败或超预算则生成完整 FAIL 报告。
 - CLI 在 Preflight gate 为 FAIL 时返回 1，使 CI 不会因为“成功打印了一份失败报告”而误判通过。
   合法合成对照返回 0。整个验证过程只读取已有结果，不调用模型。
+
+## 2026-09-15 / Context Projection / v2 真实 Preflight
+
+- 两条预注册运行均完整保留。baseline 找到了共享根因，却改成
+  `range(0, attempts + 1)`，导致三次重试产生四项并耗尽工具预算，Safe Task Success 失败；
+  projection 改成正确的 `range(0, attempts)`，测试与隐藏验收通过。
+- projection 六轮 `changed_tool_result_count` 均为 0。工具结果不足以覆盖条件式回读 Tool Spec，
+  自适应策略保持完整请求属于正确退化；但 Preflight 没有覆盖核心投影路径，因此仍必须 FAIL。
+- 两组 Provider input Token 分别为 13571 与 11104，不能把差值归因于压缩：projection 实际零
+  投影，而且两次运行的调用轨迹与成败不同。A/B 归因需要相同任务分布、足够重复和路径命中。
+- stderr 还有一个容易遗漏的边界：审批提示不以换行结束，stdin 的终端回显不会进入重定向的
+  stderr，Trace header 可能接在 `Approve?` 后面。原始 stderr 应保留，提取器必须搜索唯一
+  `Trace run_` 子串，而不能假定它位于行首。
+- 门禁结果：Run shape、回读、总 Token、Usage、Artifact 与协议快照通过；Safe Task Success 和
+  Projection activity 失败。v2 按协议停止，不启动 12-run 正式实验。
+- 下一方向：先离线设计能稳定产生足够大历史 ToolResult 的真实 Coding Case，并用 Scripted
+  Model 验证投影和回读分支。新 Case 来自观察 v2 后的调整，真实实验必须使用新协议 ID。

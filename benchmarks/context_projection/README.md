@@ -74,8 +74,9 @@ schema 2、`minimum_net_savings_bytes=1` 和 `retrieval_tool_loading=on_referenc
 由于本页策略是根据该 Preflight 新增的自适应版本，v1 已停止，后续真实运行必须使用新协议。
 
 自适应策略的预注册协议见 `REAL_MODEL_PROTOCOL_V2.md` 和
-`real_model_protocol_v2.json`。v2 尚未运行真实模型；首先只允许一对独立 Preflight，并要求
-projection 至少实际命中一次，否则不能证明新路径得到端到端覆盖。
+`real_model_protocol_v2.json`。一对真实 Preflight 已保存在 `results/v2-preflight/`：baseline
+任务失败，projection 任务成功但没有实际投影，因而门禁为 FAIL，v2 不进入正式实验。完整解释
+见该目录的 `REPORT.md`。
 
 两条 Preflight 结果使用专用门禁，不能交给要求 12 条正式样本的汇总模式：
 

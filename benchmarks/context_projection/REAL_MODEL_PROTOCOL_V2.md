@@ -1,6 +1,6 @@
 # Context Projection 自适应策略真实模型协议 v2
 
-状态：已预注册，尚未调用真实模型，尚未产生 v2 Preflight 或正式样本。
+状态：真实 Preflight 已完成并判定 FAIL；正式样本未启动，v2 停止。
 
 机器可读协议见 `real_model_protocol_v2.json`。v1 的原始协议、Preflight 和失败结论继续保留，
 但不得与 v2 结果合并。
@@ -66,6 +66,9 @@ Artifact 不完整时，也必须保存现状并停止，不能通过删除失�
 
 ## 6. 当前阶段边界
 
-协议文件、离线解析、只读就绪审计和两条结果的 Preflight 验证模式均已完成，尚未调用
-Provider。真实 v2 Preflight 必须保存协议快照，并使用
-`evaluation_summary --context-preflight-protocol` 检查两条结果；报告为 FAIL 时命令也返回 1。
+协议文件、离线解析、只读就绪审计和两条真实 Provider Preflight 均已完成。原始结果与报告
+保存在 `results/v2-preflight/`。门禁确认 baseline Safe Task Success 失败，并且 projection
+虽然任务成功，却没有改变任何 ToolResult，因此没有覆盖自适应投影路径。
+
+v2 按预注册停止条件结束，不能进入正式 12-run 实验。后续应先离线构造能稳定触发净收益门槛
+的 Case；由于这是观察 v2 之后的实验设计变化，新的真实验证必须使用新的协议 ID。

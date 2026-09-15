@@ -2,7 +2,8 @@
 
 审计日期：2026-09-15  
 审计基线：MiniCode `26d10ed`  
-结论：环境条件通过；审计发现的离线 Preflight 结果验证器现已补齐，真实调用仍未开始。
+结论：环境条件通过；审计发现的离线 Preflight 结果验证器已补齐。随后执行的真实 Preflight
+结果见 `results/v2-preflight/REPORT.md`。
 
 本审计没有调用 Provider，没有创建临时评测 Workspace，也没有创建 v2 结果目录。
 
@@ -34,14 +35,22 @@ CLI 的 stdout 只保存模型最终回答，作为 `answer.txt`。stderr 同时
 
 因此不能把整个 stderr 直接命名为 `trace.txt`。实际运行应先完整保存为
 `stderr.raw.txt`，同时通过 `tee` 显示到终端，让操作者看到精确 Tool 名称和参数后逐次批准。
-运行结束后，只从唯一的 `^Trace run_` 行开始提取 `trace.txt`：
+真实 projection Run 还发现：审批提示本身不以换行结束，而终端回显的输入换行不会写进重定向
+后的 stderr，所以 Trace header 可能紧接在 `Approve? [y/N]: ` 后面，不能只匹配行首。应确认
+全文恰好有一个 `Trace run_` 子串，再从子串位置开始提取：
 
 ```bash
-awk 'found || /^Trace run_/ { found = 1; print }' \
-  stderr.raw.txt > trace.txt
+awk '
+  found { print; next }
+  {
+    marker = index($0, "Trace run_")
+    if (marker) { found = 1; print substr($0, marker) }
+  }
+  END { if (!found) exit 1 }
+' stderr.raw.txt > trace.txt
 ```
 
-提取前必须确认原始 stderr 中恰好有一个 `^Trace run_`；提取后第一行必须以 `Trace run_`
+提取前必须确认原始 stderr 中恰好有一个 `Trace run_`；提取后第一行必须以 `Trace run_`
 开头。`stderr.raw.txt` 继续保留，不用过滤后的文件覆盖它。不能预先管道输入一串 `y`，因为
 Approval 的意义是看到本次具体调用后再批准，而不是盲批未知副作用。
 
@@ -86,3 +95,12 @@ PASS/FAIL，并在门禁失败时返回非零退出码：
 
 上述标准已由合成结果测试和全项目门禁验证。下一阶段才是创建隔离目录、保存协议快照并执行
 两次真实调用；任何一次结果都必须保留，不能用补跑覆盖失败事实。
+
+## 5. 后续真实执行结果
+
+真实 Preflight 随后在 MiniCode commit `86a3ddc` 上完成。baseline 因实现 off-by-one 且耗尽
+工具预算而失败；projection 正确完成任务，但全部模型请求的 `changed_tool_result_count` 都是
+0。总 Token 与 Artifact 等其他门禁通过，最终 Preflight gate 为 FAIL。
+
+这证明 Case 没有稳定覆盖自适应投影路径。v2 已停止，不执行正式 12-run；下一阶段先离线设计
+新的覆盖 Case，并为后续真实运行预注册新协议 ID。

@@ -1,0 +1,59 @@
+Run ID: run_03747f2e7c87433d865da0fa34bf0f7c
+Tool approval required
+Tool: edit_file
+Arguments: {"new_text": "    return tuple(\n        base_seconds * 2**attempt\n        for attempt in range(\n            0,\n            attempts,\n        )\n    )", "old_text": "    return tuple(\n        base_seconds * 2**attempt\n        for attempt in range(\n            1,\n            attempts + 1,\n        )\n    )", "path": "retrying/backoff.py"}
+Reason: workspace changes require approval
+Approve? [y/N]: Tool approval required
+Tool: run_tests
+Arguments: {"path": "tests/test_orders.py"}
+Reason: running tests requires approval
+Approve? [y/N]: Trace run_03747f2e7c87433d865da0fa34bf0f7c
+001 run_started {"initial_history_items": 1, "max_tool_calls": 8, "max_turns": 8, "total_timeout_seconds": null}
+002 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 392, "tool_call_bytes": 0, "tool_definition_bytes": 3455, "tool_result_bytes": 0, "total_bytes": 4495}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "tool_result_bytes_after": 0, "tool_result_bytes_before": 0, "tool_result_bytes_saved": 0, "total_bytes_after": 4495, "total_bytes_before": 4495, "total_bytes_saved": 0}, "turn": 1}
+003 model_call_finished {"input_tokens": 1358, "outcome": "succeeded", "output_tokens": 24, "tool_call_count": 1, "turn": 1}
+004 tool_policy_decided {"call_id": "call_f98ce3d2d7134b5e935c7f63", "outcome": "allow", "reason": "workspace file discovery is allowed", "tool_name": "list_files"}
+005 tool_execution_started {"call_id": "call_f98ce3d2d7134b5e935c7f63", "tool_name": "list_files"}
+006 tool_execution_finished {"call_id": "call_f98ce3d2d7134b5e935c7f63", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:6241f3d10ca353830266b89b2eb548e1419bc7ec48d302cfdce2c1a4d7331884", "byte_count": 134, "media_type": "text/plain"}, "tool_name": "list_files"}
+007 checkpoint_saved {"is_completed": false, "message_history_items": 3, "tool_calls_used": 1, "turns_used": 1}
+008 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 392, "tool_call_bytes": 90, "tool_definition_bytes": 3455, "tool_result_bytes": 216, "total_bytes": 4801}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "tool_result_bytes_after": 216, "tool_result_bytes_before": 216, "tool_result_bytes_saved": 0, "total_bytes_after": 4801, "total_bytes_before": 4801, "total_bytes_saved": 0}, "turn": 2}
+009 model_call_finished {"input_tokens": 1436, "outcome": "succeeded", "output_tokens": 82, "tool_call_count": 3, "turn": 2}
+010 tool_policy_decided {"call_id": "call_918515ad5aa34889a1df7476", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+011 tool_execution_started {"call_id": "call_918515ad5aa34889a1df7476", "tool_name": "read_file"}
+012 tool_execution_finished {"call_id": "call_918515ad5aa34889a1df7476", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:27ff259336275261ecdd4ddbe3702f561224ff89118adc4e2b5e51710f4781b1", "byte_count": 545, "media_type": "text/plain"}, "tool_name": "read_file"}
+013 checkpoint_saved {"is_completed": false, "message_history_items": 7, "tool_calls_used": 2, "turns_used": 2}
+014 tool_policy_decided {"call_id": "call_393c2db446aa4be18e0f2f67", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+015 tool_execution_started {"call_id": "call_393c2db446aa4be18e0f2f67", "tool_name": "read_file"}
+016 tool_execution_finished {"call_id": "call_393c2db446aa4be18e0f2f67", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:a2987b23f9cade11ccf19f12d929382ea253884051d555d45b3d303a3fadef98", "byte_count": 282, "media_type": "text/plain"}, "tool_name": "read_file"}
+017 checkpoint_saved {"is_completed": false, "message_history_items": 8, "tool_calls_used": 3, "turns_used": 2}
+018 tool_policy_decided {"call_id": "call_40c0b81c6f4e4e41a2645c93", "outcome": "allow", "reason": "workspace searches are allowed", "tool_name": "search_text"}
+019 tool_execution_started {"call_id": "call_40c0b81c6f4e4e41a2645c93", "tool_name": "search_text"}
+020 tool_execution_finished {"call_id": "call_40c0b81c6f4e4e41a2645c93", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:8a099e225c1c451254fa71fcefa0dd9ad2dcca291685c94c31192f895c3a4a93", "byte_count": 206, "media_type": "text/plain"}, "tool_name": "search_text"}
+021 checkpoint_saved {"is_completed": false, "message_history_items": 9, "tool_calls_used": 4, "turns_used": 2}
+022 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 392, "tool_call_bytes": 398, "tool_definition_bytes": 3455, "tool_result_bytes": 1542, "total_bytes": 6435}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "tool_result_bytes_after": 1542, "tool_result_bytes_before": 1542, "tool_result_bytes_saved": 0, "total_bytes_after": 6435, "total_bytes_before": 6435, "total_bytes_saved": 0}, "turn": 3}
+023 model_call_finished {"input_tokens": 1798, "outcome": "succeeded", "output_tokens": 56, "tool_call_count": 2, "turn": 3}
+024 tool_policy_decided {"call_id": "call_75ec2e648b494403b092e455", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+025 tool_execution_started {"call_id": "call_75ec2e648b494403b092e455", "tool_name": "read_file"}
+026 tool_execution_finished {"call_id": "call_75ec2e648b494403b092e455", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:6b232eb32968e706a40c74d0121ad50eb1a0cf709cc3358564948eef1e80c14d", "byte_count": 301, "media_type": "text/plain"}, "tool_name": "read_file"}
+027 checkpoint_saved {"is_completed": false, "message_history_items": 12, "tool_calls_used": 5, "turns_used": 3}
+028 tool_policy_decided {"call_id": "call_f30b8a2b4da54c3da6d49139", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+029 tool_execution_started {"call_id": "call_f30b8a2b4da54c3da6d49139", "tool_name": "read_file"}
+030 tool_execution_finished {"call_id": "call_f30b8a2b4da54c3da6d49139", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:161cfa73e7b9dd3be26594336f6af656a33cd0605627dd6f1a2cb712ee098cec", "byte_count": 209, "media_type": "text/plain"}, "tool_name": "read_file"}
+031 checkpoint_saved {"is_completed": false, "message_history_items": 13, "tool_calls_used": 6, "turns_used": 3}
+032 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 392, "tool_call_bytes": 617, "tool_definition_bytes": 3455, "tool_result_bytes": 2235, "total_bytes": 7347}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "tool_result_bytes_after": 2235, "tool_result_bytes_before": 2235, "tool_result_bytes_saved": 0, "total_bytes_after": 7347, "total_bytes_before": 7347, "total_bytes_saved": 0}, "turn": 4}
+033 model_call_finished {"input_tokens": 2002, "outcome": "succeeded", "output_tokens": 196, "tool_call_count": 1, "turn": 4}
+034 tool_policy_decided {"call_id": "call_93366a22a6634ead971538a7", "outcome": "ask", "reason": "workspace changes require approval", "tool_name": "edit_file"}
+035 tool_approval_resolved {"approved": true, "call_id": "call_93366a22a6634ead971538a7", "tool_name": "edit_file"}
+036 tool_execution_started {"call_id": "call_93366a22a6634ead971538a7", "tool_name": "edit_file"}
+037 tool_execution_finished {"call_id": "call_93366a22a6634ead971538a7", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:d22b554165f1704bf1b8f34b73a9a488312ae1f90f9c456c7a2ee89bc469b639", "byte_count": 28, "media_type": "text/plain"}, "tool_name": "edit_file"}
+038 checkpoint_saved {"is_completed": false, "message_history_items": 16, "tool_calls_used": 7, "turns_used": 4}
+039 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 650, "tool_call_bytes": 1035, "tool_definition_bytes": 3455, "tool_result_bytes": 2336, "total_bytes": 8124}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "tool_result_bytes_after": 2336, "tool_result_bytes_before": 2336, "tool_result_bytes_saved": 0, "total_bytes_after": 8124, "total_bytes_before": 8124, "total_bytes_saved": 0}, "turn": 5}
+040 model_call_finished {"input_tokens": 2223, "outcome": "succeeded", "output_tokens": 28, "tool_call_count": 1, "turn": 5}
+041 tool_policy_decided {"call_id": "call_79433c1019a64b33a09bbfc4", "outcome": "ask", "reason": "running tests requires approval", "tool_name": "run_tests"}
+042 tool_approval_resolved {"approved": true, "call_id": "call_79433c1019a64b33a09bbfc4", "tool_name": "run_tests"}
+043 tool_execution_started {"call_id": "call_79433c1019a64b33a09bbfc4", "tool_name": "run_tests"}
+044 tool_execution_finished {"call_id": "call_79433c1019a64b33a09bbfc4", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:bdf92807d46a2f074abfbdc8fbfd95883c2cd441a53ae518f02cec6264b8f4e2", "byte_count": 97, "media_type": "text/plain"}, "tool_name": "run_tests"}
+045 checkpoint_saved {"is_completed": false, "message_history_items": 18, "tool_calls_used": 8, "turns_used": 5}
+046 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 650, "tool_call_bytes": 1142, "tool_definition_bytes": 3455, "tool_result_bytes": 2507, "total_bytes": 8402}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "tool_result_bytes_after": 2507, "tool_result_bytes_before": 2507, "tool_result_bytes_saved": 0, "total_bytes_after": 8402, "total_bytes_before": 8402, "total_bytes_saved": 0}, "turn": 6}
+047 model_call_finished {"input_tokens": 2287, "outcome": "succeeded", "output_tokens": 155, "tool_call_count": 0, "turn": 6}
+048 checkpoint_saved {"is_completed": true, "message_history_items": 18, "tool_calls_used": 8, "turns_used": 6}
+049 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 6}

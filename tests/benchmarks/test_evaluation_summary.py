@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from minicode.evaluation_summary import (
+    main,
     summarize_context_experiment_results,
+    summarize_context_preflight_results,
     summarize_results,
 )
 
@@ -57,8 +59,10 @@ def _write_result(
 
     answer = b"Recorded answer.\n"
     trace = b"Recorded trace.\n"
+    workspace_patch = b""
     (case_root / "answer.txt").write_bytes(answer)
     (case_root / "trace.txt").write_bytes(trace)
+    (case_root / "workspace.patch").write_bytes(workspace_patch)
     result["artifacts"] = {
         "answer": {
             "file": "answer.txt",
@@ -67,6 +71,10 @@ def _write_result(
         "trace": {
             "file": "trace.txt",
             "sha256": hashlib.sha256(trace).hexdigest(),
+        },
+        "workspace_patch": {
+            "file": "workspace.patch",
+            "sha256": hashlib.sha256(workspace_patch).hexdigest(),
         },
     }
 
@@ -121,6 +129,23 @@ def _write_context_protocol(
 
     if schema_version == 2:
         payload["context_projection_configuration_schema_version"] = 2
+        payload["preflight_plan"] = {
+            "case": "case_a",
+            "arm_order": ["baseline", "projection"],
+            "runs": 2,
+            "success_requirements": {
+                "safe_task_successes_per_arm": 1,
+                "minimum_changed_tool_result_count": 1,
+                "maximum_failed_or_cancelled_readbacks": 0,
+                "provider_usage_required": True,
+                "complete_artifact_set_required": True,
+            },
+        }
+        payload["preflight_budget"] = {
+            "maximum_runs": 2,
+            "maximum_input_tokens": 300,
+            "maximum_output_tokens": 100,
+        }
 
     path.write_text(
         json.dumps(payload),
@@ -133,9 +158,15 @@ def _context_experiment(
     *,
     failed_readbacks: int = 0,
     protocol_id: str = "context-protocol-v1",
+    changed_tool_result_count: int | None = None,
 ) -> dict[str, object]:
     projected = arm == "projection"
-    saved_bytes = 10 if projected else 0
+    changed_count = (
+        int(projected)
+        if changed_tool_result_count is None
+        else changed_tool_result_count
+    )
+    saved_bytes = 10 if changed_count > 0 else 0
     return {
         "protocol_id": protocol_id,
         "arm": arm,
@@ -149,15 +180,57 @@ def _context_experiment(
         },
         "metrics": {
             "model_call_count": 1,
-            "model_visible_bytes": 90 if projected else 100,
+            "model_visible_bytes": 100 - saved_bytes,
             "canonical_bytes": 100,
             "projection_bytes_saved": saved_bytes,
-            "changed_tool_result_count": 1 if projected else 0,
+            "changed_tool_result_count": changed_count,
             "successful_readback_count": 0,
             "failed_readback_count": failed_readbacks,
             "cancelled_readback_count": 0,
         },
     }
+
+
+def _write_preflight_results(
+    results_root: Path,
+    protocol_path: Path,
+    *,
+    arms: tuple[str, ...] = ("baseline", "projection"),
+    projection_changes: int = 1,
+    failed_readbacks: int = 0,
+    input_tokens: tuple[int, ...] = (100, 90),
+) -> None:
+    (results_root / "protocol.snapshot.json").write_bytes(protocol_path.read_bytes())
+
+    for index, arm in enumerate(arms):
+        _write_result(
+            results_root,
+            case_id="case_a",
+            accepted=True,
+            model_calls=1,
+            tool_executions=1,
+            input_tokens=input_tokens[index],
+            output_tokens=10,
+            workspace_changes=[],
+            schema_version=2,
+            verdict={
+                "outcome_passed": True,
+                "operational_passed": True,
+                "budget_passed": True,
+                "trace_passed": True,
+                "passed": True,
+            },
+            directory_name=f"case_a-{arm}-{index}",
+            run_id=f"run_{arm}_{index}",
+            context_experiment=_context_experiment(
+                arm,
+                failed_readbacks=(failed_readbacks if arm == "projection" else 0),
+                protocol_id="context-protocol-v2",
+                changed_tool_result_count=(
+                    projection_changes if arm == "projection" else 0
+                ),
+            ),
+        )
 
 
 def test_summary_combines_recorded_results(tmp_path: Path) -> None:
@@ -295,6 +368,203 @@ def test_summary_rejects_directory_without_results(tmp_path: Path) -> None:
         match="no result.json files found",
     ):
         summarize_results(tmp_path)
+
+
+def test_context_preflight_summary_passes_complete_pair(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(results_root, protocol_path)
+
+    summary = summarize_context_preflight_results(results_root, protocol_path)
+
+    assert "| baseline | 1 | 1/1 | 100 | 10 | 0 | 0/0 |" in summary
+    assert "| projection | 1 | 1/1 | 90 | 10 | 1 | 0/0 |" in summary
+    assert "- Run shape: pass" in summary
+    assert "- Projection activity: 1/1 (pass)" in summary
+    assert "- Provider input Token budget: 190/300 (pass)" in summary
+    assert "- Per-run Artifact set: pass" in summary
+    assert "- Protocol snapshot: pass" in summary
+    assert "- Preflight gate: PASS" in summary
+
+
+def test_context_preflight_cli_selects_preflight_gate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(results_root, protocol_path)
+
+    exit_code = main(
+        (
+            str(results_root),
+            "--context-preflight-protocol",
+            str(protocol_path),
+        )
+    )
+
+    assert exit_code == 0
+    assert "- Preflight gate: PASS" in capsys.readouterr().out
+
+
+def test_context_preflight_cli_returns_failure_exit_code(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(
+        results_root,
+        protocol_path,
+        arms=("baseline",),
+        input_tokens=(100,),
+    )
+
+    exit_code = main(
+        (
+            str(results_root),
+            "--context-preflight-protocol",
+            str(protocol_path),
+        )
+    )
+
+    assert exit_code == 1
+    assert "- Preflight gate: FAIL" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("arms", "projection_changes", "failed_readbacks", "input_tokens", "failure"),
+    (
+        (("baseline",), 1, 0, (100,), "- Run shape: fail"),
+        (
+            ("baseline", "baseline"),
+            1,
+            0,
+            (100, 100),
+            "- Run shape: fail",
+        ),
+        (
+            ("baseline", "projection"),
+            0,
+            0,
+            (100, 90),
+            "- Projection activity: 0/1 (fail)",
+        ),
+        (
+            ("baseline", "projection"),
+            1,
+            1,
+            (100, 90),
+            "- Failed or cancelled readbacks: 1/0 (fail)",
+        ),
+        (
+            ("baseline", "projection"),
+            1,
+            0,
+            (200, 200),
+            "- Provider input Token budget: 400/300 (fail)",
+        ),
+    ),
+)
+def test_context_preflight_summary_reports_gate_failures(
+    tmp_path: Path,
+    arms: tuple[str, ...],
+    projection_changes: int,
+    failed_readbacks: int,
+    input_tokens: tuple[int, ...],
+    failure: str,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(
+        results_root,
+        protocol_path,
+        arms=arms,
+        projection_changes=projection_changes,
+        failed_readbacks=failed_readbacks,
+        input_tokens=input_tokens,
+    )
+
+    summary = summarize_context_preflight_results(results_root, protocol_path)
+
+    assert failure in summary
+    assert "- Preflight gate: FAIL" in summary
+
+
+def test_context_preflight_summary_rejects_missing_provider_usage(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(results_root, protocol_path)
+    result_path = results_root / "case_a-baseline-0" / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    del result["run"]["input_tokens"]
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(TypeError, match="input_tokens must be an integer"):
+        summarize_context_preflight_results(results_root, protocol_path)
+
+
+def test_context_preflight_summary_rejects_tampered_artifact(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(results_root, protocol_path)
+    (results_root / "case_a-projection-1" / "workspace.patch").write_text(
+        "tampered\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="artifact SHA-256 mismatch"):
+        summarize_context_preflight_results(results_root, protocol_path)
+
+
+def test_context_preflight_summary_rejects_mixed_model(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(results_root, protocol_path)
+    result_path = results_root / "case_a-projection-1" / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["model"] = "another-model"
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="result model does not match context protocol",
+    ):
+        summarize_context_preflight_results(results_root, protocol_path)
+
+
+def test_context_preflight_summary_rejects_dirty_minicode_run(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, schema_version=2)
+    _write_preflight_results(results_root, protocol_path)
+    result_path = results_root / "case_a-projection-1" / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["minicode_dirty"] = True
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="context experiment contains a dirty MiniCode run",
+    ):
+        summarize_context_preflight_results(results_root, protocol_path)
 
 
 def test_context_summary_passes_complete_quality_and_token_gates(

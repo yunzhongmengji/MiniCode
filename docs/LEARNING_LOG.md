@@ -532,3 +532,19 @@
   机器执行两条 Preflight 的路径覆盖和总预算检查。协议里有字段不等于系统会执行它。
 - 决策：暂不调用真实 Provider。下一小步先实现只读 Preflight 验证模式，使合法合成结果通过，
   并让缺 Arm、无真实投影、Usage 缺失、超预算或回读失败等情况确定性失败。
+
+## 2026-09-15 / Context Projection / Preflight 离线门禁
+
+- 新的 `--context-preflight-protocol` 与正式 `--context-protocol` 分开：前者期待每 Arm 一条，
+  后者期待每 Case/Arm 三条。复用结果解码、Artifact 哈希、协议/模型/commit/配置校验，但采用
+  不同的样本数量和晋级条件。
+- v2 Loader 现在真正读取 `preflight_plan` 与 `preflight_budget`，并校验 Case、Arm 顺序声明、
+  两次运行、每 Arm 成功数、投影活动、回读上限、Usage/Artifact 要求和 Token 预算。JSON 中的
+  这些字段不再只是注释。
+- 协议字段从 `minimum_projection_model_calls` 改为
+  `minimum_changed_tool_result_count`。现有 result 保存的是累计变化 ToolResult 数；门槛为 1 时
+  足以证明至少发生一轮投影，但不能伪装成掌握了更细的逐轮计数。
+- 结构错误与实验失败分开：缺字段、混入模型、脏 commit、重复 Run ID、Artifact 哈希损坏会
+  直接拒绝；两条结果结构可信但缺 Arm、未投影、回读失败或超预算则生成完整 FAIL 报告。
+- CLI 在 Preflight gate 为 FAIL 时返回 1，使 CI 不会因为“成功打印了一份失败报告”而误判通过。
+  合法合成对照返回 0。整个验证过程只读取已有结果，不调用模型。

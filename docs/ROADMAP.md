@@ -181,3 +181,7 @@ v2 只读就绪审计已完成：协议、模型名、凭据存在性、Case、A
 但发现 `preflight_plan` 尚未由程序执行。现有汇总器只适合正式 12-run 批次，无法对两条
 Preflight 自动检查恰好一条/Arm、至少一次真实投影和合计预算。付费运行继续暂停；下一小步
 实现离线 Preflight 验证模式，并保留原始 stderr、从唯一 `Trace run_` 起提取规范 Trace。
+
+Preflight 离线验证模式现已完成：v2 Loader 会执行协议中的 Preflight Case、每 Arm 一条、投影
+活动、Usage/Artifact、回读与总 Token 预算约束；合法合成对照输出 PASS，证据可信但门禁不足
+输出 FAIL 且 CLI 返回 1，结构损坏则直接拒绝。当前仍未创建 v2 结果目录或调用 Provider。

@@ -2,7 +2,7 @@
 
 审计日期：2026-09-15  
 审计基线：MiniCode `26d10ed`  
-结论：环境条件通过；付费 Preflight 暂缓，先补离线 Preflight 结果验证器。
+结论：环境条件通过；审计发现的离线 Preflight 结果验证器现已补齐，真实调用仍未开始。
 
 本审计没有调用 Provider，没有创建临时评测 Workspace，也没有创建 v2 结果目录。
 
@@ -45,13 +45,13 @@ awk 'found || /^Trace run_/ { found = 1; print }' \
 开头。`stderr.raw.txt` 继续保留，不用过滤后的文件覆盖它。不能预先管道输入一串 `y`，因为
 Approval 的意义是看到本次具体调用后再批准，而不是盲批未知副作用。
 
-## 3. 当前唯一工程阻塞
+## 3. 审计发现的工程阻塞
 
 v2 协议已经预注册以下 Preflight 条件：
 
 - baseline/projection 恰好各一条；
 - 两条都通过 Safe Task Success；
-- projection 至少一个模型调用实际改变 ToolResult；
+- projection 累计至少改变一个 ToolResult，这也证明至少有一个模型调用实际投影；
 - 失败或取消回读为 0；
 - Provider Usage 和完整 Artifact 存在；
 - 合计 Token 不超过 Preflight 预算。
@@ -60,13 +60,22 @@ v2 协议已经预注册以下 Preflight 条件：
 它也尚未读取 `preflight_plan`。如果现在运行，只能人工检查上述条件，容易漏判或事后改变
 口径。
 
-因此进入付费 Preflight 前，先实现一个离线模式：读取 v2 协议和恰好两份已有 `result.json`，
-逐项输出 Preflight PASS/FAIL。该模式只读结果，不启动模型。完成后重新运行代码门禁并确认
-工作区干净，再决定是否执行两次真实调用。
+该阻塞随后已解除。离线模式读取 v2 协议和已有 `result.json`，逐项输出 Preflight
+PASS/FAIL，并在门禁失败时返回非零退出码：
+
+```bash
+.venv/bin/python -m minicode.evaluation_summary \
+  benchmarks/context_projection/results/v2-preflight \
+  --context-preflight-protocol \
+  benchmarks/context_projection/real_model_protocol_v2.json
+```
+
+它不会启动模型。缺少或损坏的必要字段和 Artifact 会直接拒绝；证据格式正确但数量不足、
+没有真实投影、回读失败或超预算时，会保留逐项报告并把 Preflight gate 标记为 `FAIL`。
 
 ## 4. 进入真实 Preflight 的标准
 
-下一阶段只有同时满足以下条件才结束：
+本阶段只有同时满足以下条件才结束：
 
 1. Preflight 验证器对缺 Arm、重复 Arm、协议或模型不一致、脏 commit、Usage 缺失、预算超限、
    Artifact 损坏、无实际投影和回读失败分别有拒绝测试；
@@ -74,3 +83,6 @@ v2 协议已经预注册以下 Preflight 条件：
 3. Ruff、格式、mypy、全量 pytest 和 `git diff --check` 通过；
 4. 最终 commit 干净，凭据与模型只检查存在和名称，不泄露密钥；
 5. v2 结果目录仍不存在，避免把工具开发数据混入真实 Preflight。
+
+上述标准已由合成结果测试和全项目门禁验证。下一阶段才是创建隔离目录、保存协议快照并执行
+两次真实调用；任何一次结果都必须保留，不能用补跑覆盖失败事实。

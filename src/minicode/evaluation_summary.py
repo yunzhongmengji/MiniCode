@@ -48,8 +48,23 @@ class _RecordedEvaluation:
     input_tokens: int
     output_tokens: int
     workspace_change_count: int
+    artifact_names: frozenset[str]
     run_id: str | None
     context_experiment: _RecordedContextExperiment | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ContextPreflightPlan:
+    case_id: str
+    arm_order: tuple[str, ...]
+    maximum_runs: int
+    required_safe_successes_per_arm: int
+    minimum_changed_tool_result_count: int
+    maximum_failed_or_cancelled_readbacks: int
+    provider_usage_required: bool
+    complete_artifact_set_required: bool
+    maximum_input_tokens: int
+    maximum_output_tokens: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +86,7 @@ class _ContextProtocol:
     minimum_aggregate_input_token_reduction_percent: int
     maximum_per_case_input_token_regression_percent: int
     maximum_failed_or_cancelled_readbacks: int
+    preflight_plan: _ContextPreflightPlan | None
 
 
 def summarize_results(results_root: Path) -> str:
@@ -132,6 +148,245 @@ def summarize_results(results_root: Path) -> str:
     return "\n".join(rows)
 
 
+def _validate_context_result_against_protocol(
+    result: _RecordedEvaluation,
+    protocol: _ContextProtocol,
+) -> tuple[_RecordedContextExperiment, str]:
+    """Validate facts shared by formal and Preflight context summaries."""
+    experiment = result.context_experiment
+
+    if experiment is None:
+        raise ValueError("context summary cannot include a non-experiment result")
+
+    if experiment.protocol_id != protocol.protocol_id:
+        raise ValueError("result context protocol_id does not match protocol file")
+
+    if result.case_id not in protocol.cases:
+        raise ValueError(f"unexpected context experiment case: {result.case_id}")
+
+    expected_threshold = (
+        protocol.baseline_threshold
+        if experiment.arm == "baseline"
+        else protocol.projection_threshold
+    )
+
+    if experiment.max_inline_tool_result_bytes != expected_threshold:
+        raise ValueError("result context threshold does not match protocol file")
+
+    if protocol.context_projection_configuration_schema_version is not None:
+        expected_strategy = (
+            protocol.baseline_strategy
+            if experiment.arm == "baseline"
+            else protocol.projection_strategy
+        )
+        expected_minimum_net_savings = (
+            protocol.baseline_minimum_net_savings_bytes
+            if experiment.arm == "baseline"
+            else protocol.projection_minimum_net_savings_bytes
+        )
+        expected_retrieval_tool_loading = (
+            protocol.baseline_retrieval_tool_loading
+            if experiment.arm == "baseline"
+            else protocol.projection_retrieval_tool_loading
+        )
+
+        if (
+            experiment.trace_configuration_schema_version
+            != protocol.context_projection_configuration_schema_version
+            or experiment.strategy != expected_strategy
+            or experiment.minimum_net_savings_bytes != expected_minimum_net_savings
+            or experiment.retrieval_tool_loading != expected_retrieval_tool_loading
+        ):
+            raise ValueError(
+                "result context configuration does not match protocol file"
+            )
+
+    if result.model != protocol.model_name:
+        raise ValueError("result model does not match context protocol")
+
+    if result.minicode_dirty:
+        raise ValueError("context experiment contains a dirty MiniCode run")
+
+    if result.input_tokens <= 0:
+        raise ValueError("context experiment requires positive Provider input tokens")
+
+    if result.output_tokens < 0:
+        raise ValueError("context experiment output tokens must not be negative")
+
+    if experiment.model_call_count != result.model_call_count:
+        raise ValueError("context and run model-call counts disagree")
+
+    if result.run_id is None:
+        raise ValueError("context experiment result must contain a run_id")
+
+    return experiment, result.run_id
+
+
+def summarize_context_preflight_results(
+    results_root: Path,
+    protocol_path: Path,
+) -> str:
+    """Render and gate one two-arm context Preflight batch."""
+    protocol = _load_context_protocol(protocol_path)
+    plan = protocol.preflight_plan
+
+    if plan is None:
+        raise ValueError("context protocol does not define a Preflight plan")
+
+    result_paths = tuple(sorted(results_root.rglob("result.json")))
+
+    if not result_paths:
+        raise ValueError(f"no result.json files found below {results_root}")
+
+    results = tuple(_load_result(path) for path in result_paths)
+    grouped: dict[str, list[tuple[_RecordedEvaluation, _RecordedContextExperiment]]] = {
+        "baseline": [],
+        "projection": [],
+    }
+    run_ids: set[str] = set()
+    commits: set[str] = set()
+
+    for result in results:
+        experiment, run_id = _validate_context_result_against_protocol(
+            result,
+            protocol,
+        )
+
+        if result.case_id != plan.case_id:
+            raise ValueError("Preflight result uses a case outside the Preflight plan")
+
+        if run_id in run_ids:
+            raise ValueError(f"duplicate context experiment run_id: {run_id}")
+
+        run_ids.add(run_id)
+        commits.add(result.minicode_commit)
+        grouped[experiment.arm].append((result, experiment))
+
+    if len(commits) != 1:
+        raise ValueError("context Preflight results must use one MiniCode commit")
+
+    expected_arm_counts = {
+        arm: plan.arm_order.count(arm) for arm in ("baseline", "projection")
+    }
+    run_shape_gate = len(results) == plan.maximum_runs and all(
+        len(grouped[arm]) == expected_arm_counts[arm]
+        for arm in ("baseline", "projection")
+    )
+    safe_successes = {
+        arm: sum(result.passed for result, _ in grouped[arm])
+        for arm in ("baseline", "projection")
+    }
+    safe_success_gate = all(
+        safe_successes[arm] == plan.required_safe_successes_per_arm
+        for arm in ("baseline", "projection")
+    )
+    projection_changes = sum(
+        experiment.changed_tool_result_count for _, experiment in grouped["projection"]
+    )
+    projection_activity_gate = (
+        projection_changes >= plan.minimum_changed_tool_result_count
+    )
+    failed_readbacks = sum(
+        experiment.failed_readback_count
+        for arm_results in grouped.values()
+        for _, experiment in arm_results
+    )
+    cancelled_readbacks = sum(
+        experiment.cancelled_readback_count
+        for arm_results in grouped.values()
+        for _, experiment in arm_results
+    )
+    readback_gate = (
+        failed_readbacks + cancelled_readbacks
+        <= plan.maximum_failed_or_cancelled_readbacks
+    )
+    input_tokens = sum(result.input_tokens for result in results)
+    output_tokens = sum(result.output_tokens for result in results)
+    input_budget_gate = input_tokens <= plan.maximum_input_tokens
+    output_budget_gate = output_tokens <= plan.maximum_output_tokens
+    usage_gate = not plan.provider_usage_required or all(
+        result.input_tokens > 0 and result.output_tokens >= 0 for result in results
+    )
+    required_artifacts = frozenset(("answer", "trace", "workspace_patch"))
+    artifact_gate = not plan.complete_artifact_set_required or all(
+        required_artifacts <= result.artifact_names for result in results
+    )
+    protocol_snapshot_path = results_root / "protocol.snapshot.json"
+    protocol_snapshot_gate = not plan.complete_artifact_set_required or (
+        protocol_snapshot_path.is_file()
+        and protocol_snapshot_path.read_bytes() == protocol_path.read_bytes()
+    )
+    preflight_passed = all(
+        (
+            run_shape_gate,
+            safe_success_gate,
+            projection_activity_gate,
+            readback_gate,
+            input_budget_gate,
+            output_budget_gate,
+            usage_gate,
+            artifact_gate,
+            protocol_snapshot_gate,
+        )
+    )
+    rows = [
+        "| Arm | Runs | Safe success | Input tokens | Output tokens | Changed ToolResults | Readbacks failed/cancelled |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+
+    for arm in ("baseline", "projection"):
+        arm_results = grouped[arm]
+        rows.append(
+            "| "
+            f"{arm} | {len(arm_results)} | "
+            f"{safe_successes[arm]}/{plan.required_safe_successes_per_arm} | "
+            f"{sum(result.input_tokens for result, _ in arm_results)} | "
+            f"{sum(result.output_tokens for result, _ in arm_results)} | "
+            f"{sum(experiment.changed_tool_result_count for _, experiment in arm_results)} | "
+            f"{sum(experiment.failed_readback_count for _, experiment in arm_results)}/"
+            f"{sum(experiment.cancelled_readback_count for _, experiment in arm_results)} |"
+        )
+
+    commit = next(iter(commits))
+    rows.extend(
+        (
+            "",
+            f"- Protocol: {protocol.protocol_id}",
+            f"- Case: {plan.case_id}",
+            f"- Model: {protocol.model_name}",
+            f"- MiniCode commit: {commit[:7]}",
+            f"- Run shape: {'pass' if run_shape_gate else 'fail'}",
+            f"- Safe Task Success: {'pass' if safe_success_gate else 'fail'}",
+            (
+                "- Projection activity: "
+                f"{projection_changes}/{plan.minimum_changed_tool_result_count} "
+                f"({'pass' if projection_activity_gate else 'fail'})"
+            ),
+            (
+                "- Failed or cancelled readbacks: "
+                f"{failed_readbacks + cancelled_readbacks}/"
+                f"{plan.maximum_failed_or_cancelled_readbacks} "
+                f"({'pass' if readback_gate else 'fail'})"
+            ),
+            (
+                f"- Provider input Token budget: {input_tokens}/"
+                f"{plan.maximum_input_tokens} "
+                f"({'pass' if input_budget_gate else 'fail'})"
+            ),
+            (
+                f"- Provider output Token budget: {output_tokens}/"
+                f"{plan.maximum_output_tokens} "
+                f"({'pass' if output_budget_gate else 'fail'})"
+            ),
+            f"- Provider Usage present: {'pass' if usage_gate else 'fail'}",
+            f"- Per-run Artifact set: {'pass' if artifact_gate else 'fail'}",
+            (f"- Protocol snapshot: {'pass' if protocol_snapshot_gate else 'fail'}"),
+            f"- Preflight gate: {'PASS' if preflight_passed else 'FAIL'}",
+        )
+    )
+    return "\n".join(rows)
+
+
 def summarize_context_experiment_results(
     results_root: Path,
     protocol_path: Path,
@@ -153,75 +408,15 @@ def summarize_context_experiment_results(
     commits: set[str] = set()
 
     for result in results:
-        experiment = result.context_experiment
-
-        if experiment is None:
-            raise ValueError("context summary cannot include a non-experiment result")
-
-        if experiment.protocol_id != protocol.protocol_id:
-            raise ValueError("result context protocol_id does not match protocol file")
-
-        if result.case_id not in protocol.cases:
-            raise ValueError(f"unexpected context experiment case: {result.case_id}")
-
-        expected_threshold = (
-            protocol.baseline_threshold
-            if experiment.arm == "baseline"
-            else protocol.projection_threshold
+        experiment, run_id = _validate_context_result_against_protocol(
+            result,
+            protocol,
         )
 
-        if experiment.max_inline_tool_result_bytes != expected_threshold:
-            raise ValueError("result context threshold does not match protocol file")
+        if run_id in run_ids:
+            raise ValueError(f"duplicate context experiment run_id: {run_id}")
 
-        if protocol.context_projection_configuration_schema_version is not None:
-            expected_strategy = (
-                protocol.baseline_strategy
-                if experiment.arm == "baseline"
-                else protocol.projection_strategy
-            )
-            expected_minimum_net_savings = (
-                protocol.baseline_minimum_net_savings_bytes
-                if experiment.arm == "baseline"
-                else protocol.projection_minimum_net_savings_bytes
-            )
-            expected_retrieval_tool_loading = (
-                protocol.baseline_retrieval_tool_loading
-                if experiment.arm == "baseline"
-                else protocol.projection_retrieval_tool_loading
-            )
-
-            if (
-                experiment.trace_configuration_schema_version
-                != protocol.context_projection_configuration_schema_version
-                or experiment.strategy != expected_strategy
-                or experiment.minimum_net_savings_bytes != expected_minimum_net_savings
-                or experiment.retrieval_tool_loading != expected_retrieval_tool_loading
-            ):
-                raise ValueError(
-                    "result context configuration does not match protocol file"
-                )
-
-        if result.model != protocol.model_name:
-            raise ValueError("result model does not match context protocol")
-
-        if result.minicode_dirty:
-            raise ValueError("formal context experiment contains a dirty MiniCode run")
-
-        if result.input_tokens <= 0:
-            raise ValueError(
-                "context experiment requires positive Provider input tokens"
-            )
-
-        if experiment.model_call_count != result.model_call_count:
-            raise ValueError("context and run model-call counts disagree")
-
-        if result.run_id is None:
-            raise ValueError("context experiment result must contain a run_id")
-
-        if result.run_id in run_ids:
-            raise ValueError(f"duplicate context experiment run_id: {result.run_id}")
-
-        run_ids.add(result.run_id)
+        run_ids.add(run_id)
         commits.add(result.minicode_commit)
         grouped[(result.case_id, experiment.arm)].append(result)
 
@@ -386,7 +581,7 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         )
 
     run = _required_mapping(result, "run", path)
-    _verify_artifacts(result, path)
+    artifact_names = _verify_artifacts(result, path)
     accepted = _required_boolean(result, "accepted", path)
     agent_exit_code = _required_integer(result, "agent_exit_code", path)
     run_outcome = _required_string(run, "outcome", path)
@@ -478,6 +673,7 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         input_tokens=_required_integer(run, "input_tokens", path),
         output_tokens=_required_integer(run, "output_tokens", path),
         workspace_change_count=len(workspace_status),
+        artifact_names=artifact_names,
         run_id=_optional_string(run, "run_id", path),
         context_experiment=context_experiment,
     )
@@ -657,6 +853,7 @@ def _load_context_protocol(path: Path) -> _ContextProtocol:
     projection_minimum_net_savings: int | None = None
     baseline_retrieval_tool_loading: str | None = None
     projection_retrieval_tool_loading: str | None = None
+    preflight_plan: _ContextPreflightPlan | None = None
 
     if schema_version == 2:
         configuration_schema_version = _required_integer(
@@ -713,6 +910,94 @@ def _load_context_protocol(path: Path) -> _ContextProtocol:
         projection_minimum_net_savings = 1
         projection_retrieval_tool_loading = "on_reference"
 
+        preflight = _required_mapping(protocol, "preflight_plan", path)
+        preflight_budget = _required_mapping(protocol, "preflight_budget", path)
+        success_requirements = _required_mapping(
+            preflight,
+            "success_requirements",
+            path,
+        )
+        preflight_case = _required_string(preflight, "case", path)
+
+        if preflight_case not in cases:
+            raise ValueError(f"preflight case must be a protocol case: {path}")
+
+        arm_order_value = preflight.get("arm_order")
+
+        if not isinstance(arm_order_value, list) or not arm_order_value:
+            raise TypeError(f"preflight arm_order must be a non-empty list: {path}")
+
+        arm_order: list[str] = []
+
+        for arm in arm_order_value:
+            if arm not in ("baseline", "projection"):
+                raise ValueError(f"preflight arm_order contains unknown arm: {path}")
+
+            arm_order.append(arm)
+
+        preflight_runs = _required_positive_integer(preflight, "runs", path)
+        maximum_runs = _required_positive_integer(
+            preflight_budget,
+            "maximum_runs",
+            path,
+        )
+
+        if preflight_runs != len(arm_order) or maximum_runs != preflight_runs:
+            raise ValueError(
+                f"preflight run count must match arm order and budget: {path}"
+            )
+
+        required_preflight_successes = _required_positive_integer(
+            success_requirements,
+            "safe_task_successes_per_arm",
+            path,
+        )
+        arm_counts = {arm: arm_order.count(arm) for arm in ("baseline", "projection")}
+
+        if any(count != required_preflight_successes for count in arm_counts.values()):
+            raise ValueError(
+                f"preflight safe successes must match each arm count: {path}"
+            )
+
+        preflight_plan = _ContextPreflightPlan(
+            case_id=preflight_case,
+            arm_order=tuple(arm_order),
+            maximum_runs=maximum_runs,
+            required_safe_successes_per_arm=required_preflight_successes,
+            minimum_changed_tool_result_count=_required_positive_integer(
+                success_requirements,
+                "minimum_changed_tool_result_count",
+                path,
+            ),
+            maximum_failed_or_cancelled_readbacks=(
+                _required_non_negative_integer(
+                    success_requirements,
+                    "maximum_failed_or_cancelled_readbacks",
+                    path,
+                )
+            ),
+            provider_usage_required=_required_boolean(
+                success_requirements,
+                "provider_usage_required",
+                path,
+            ),
+            complete_artifact_set_required=_required_boolean(
+                success_requirements,
+                "complete_artifact_set_required",
+                path,
+            ),
+            maximum_input_tokens=_required_positive_integer(
+                preflight_budget,
+                "maximum_input_tokens",
+                path,
+            ),
+            maximum_output_tokens=_required_positive_integer(
+                preflight_budget,
+                "maximum_output_tokens",
+                path,
+            ),
+        )
+
     repetitions = _required_positive_integer(
         protocol,
         "repetitions_per_case_per_arm",
@@ -764,13 +1049,14 @@ def _load_context_protocol(path: Path) -> _ContextProtocol:
             "maximum_failed_or_cancelled_readbacks",
             path,
         ),
+        preflight_plan=preflight_plan,
     )
 
 
 def _verify_artifacts(
     result: Mapping[str, object],
     result_path: Path,
-) -> None:
+) -> frozenset[str]:
     artifacts = _required_mapping(result, "artifacts", result_path)
 
     for required_name in ("answer", "trace"):
@@ -801,6 +1087,8 @@ def _verify_artifacts(
 
         if actual_sha256 != expected_sha256:
             raise ValueError(f"artifact SHA-256 mismatch: {artifact_path}")
+
+    return frozenset(artifacts)
 
 
 def _required_mapping(
@@ -907,10 +1195,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Directory containing one or more result.json files.",
     )
-    parser.add_argument(
+    context_mode = parser.add_mutually_exclusive_group()
+    context_mode.add_argument(
         "--context-protocol",
         type=Path,
         help="Pre-registered context protocol for A/B gate reporting.",
+    )
+    context_mode.add_argument(
+        "--context-preflight-protocol",
+        type=Path,
+        help="Pre-registered context protocol for two-arm Preflight reporting.",
     )
     return parser
 
@@ -918,16 +1212,25 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Print one summary for a recorded evaluation batch."""
     args = build_parser().parse_args(argv)
-    if args.context_protocol is None:
-        summary = summarize_results(args.results_root)
-    else:
+    exit_code = 0
+
+    if args.context_preflight_protocol is not None:
+        summary = summarize_context_preflight_results(
+            args.results_root,
+            args.context_preflight_protocol,
+        )
+        if summary.endswith("- Preflight gate: FAIL"):
+            exit_code = 1
+    elif args.context_protocol is not None:
         summary = summarize_context_experiment_results(
             args.results_root,
             args.context_protocol,
         )
+    else:
+        summary = summarize_results(args.results_root)
 
     print(summary)
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

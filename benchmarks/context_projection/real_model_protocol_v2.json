@@ -36,7 +36,7 @@
     "runs": 2,
     "success_requirements": {
       "safe_task_successes_per_arm": 1,
-      "minimum_projection_model_calls": 1,
+      "minimum_changed_tool_result_count": 1,
       "maximum_failed_or_cancelled_readbacks": 0,
       "provider_usage_required": true,
       "complete_artifact_set_required": true

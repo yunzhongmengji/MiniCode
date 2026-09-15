@@ -195,6 +195,17 @@ python -m minicode.evaluation_summary <formal-results-root> \
 退化上限，以及失败/取消回读数。它还要求同一协议、模型和 MiniCode commit，并拒绝 dirty
 运行。Preflight 必须保存在正式目录之外，否则会造成重复次数不一致并使门禁失败。
 
+只有 baseline/projection 各一条的真实模型彩排使用 Preflight 专用模式：
+
+```bash
+python -m minicode.evaluation_summary <preflight-results-root> \
+  --context-preflight-protocol benchmarks/context_projection/real_model_protocol_v2.json
+```
+
+该模式检查协议快照、每 Arm 一条、Safe Task Success、至少一个被投影的 ToolResult、Provider
+Usage、总 Token 预算、回读失败和每条结果的 answer/trace/workspace patch。证据结构损坏时拒绝；
+证据完整但门禁不达标时输出逐项 `FAIL` 并返回退出码 1。
+
 当前未单列一个“未授权副作用计数”。所选 Coding Case 的允许改动由隐藏验收、Workspace
 状态和 Trace 契约共同判定，因此该要求已经包含在每次 Safe Task Success 中；汇总器不会在
 缺少独立证据时伪造一个副作用数字。

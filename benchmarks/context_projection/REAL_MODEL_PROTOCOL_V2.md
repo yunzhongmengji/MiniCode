@@ -35,7 +35,7 @@ v1 的 projection 从第一轮起始终向模型发送 `read_tool_result` Tool S
 
 Preflight 只运行 `search_driven_retry_schedule` 的 baseline、projection 各一次，不进入正式
 统计。除了两次 Safe Task Success，还必须至少观察到一个
-`changed_tool_result_count > 0` 的 projection 模型调用。若没有命中，说明这对运行没有覆盖
+`changed_tool_result_count > 0`。若没有命中，说明这对运行没有覆盖
 新策略核心路径：应停止并重新审视 Case，不能把“两组都成功”当作压缩闭环验证完成。
 
 Preflight 还要求 Provider Usage 存在、失败或取消回读为 0、Answer 不含审批提示，并完整保存
@@ -66,5 +66,6 @@ Artifact 不完整时，也必须保存现状并停止，不能通过删除失�
 
 ## 6. 当前阶段边界
 
-本阶段只完成协议文件和离线解析校验，不调用 Provider。进入真实 v2 Preflight 前还要完成一次
-只读就绪审计，确认协议快照、运行命令、结果目录、凭据、干净 commit 和两次运行预算。
+协议文件、离线解析、只读就绪审计和两条结果的 Preflight 验证模式均已完成，尚未调用
+Provider。真实 v2 Preflight 必须保存协议快照，并使用
+`evaluation_summary --context-preflight-protocol` 检查两条结果；报告为 FAIL 时命令也返回 1。

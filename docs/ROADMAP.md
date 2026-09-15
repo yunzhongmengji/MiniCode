@@ -216,3 +216,9 @@ bytes，成为历史结果后，扣除 501-byte 条件式回读 Tool Spec 仍使
 projection 作答前的请求则同时带有旧结果引用和一份通过 `read_tool_result` 恢复的相同原文。
 两组都只搜索一次并通过语义压力 Case。这仍是确定性信息路径证据，下一小步是基于新 Case 冻结
 新的真实模型实验协议和小额 Preflight 门禁，但暂不运行 Provider。
+
+v3 协议 `context-projection-evidence-recall-real-model-pilot-v3` 已预注册。Preflight 固定使用
+`large_search_context_recall`，baseline 后 projection 各一次，总预算 45,000 input / 5,000 output
+Token；正式计划使用 repair/recall 两个配对 Case 共 12 runs。当前未运行 Provider、未建结果目录。
+当前 Preflight 预算有机器门禁，正式总预算和配对顺序仍是操作者规则。下一小步是 v3 只读就绪审计，
+通过后才能询问是否执行付费 Preflight；正式实验前再单独补齐后两项的机器校验。

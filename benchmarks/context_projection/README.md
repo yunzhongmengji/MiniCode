@@ -78,6 +78,10 @@ schema 2、`minimum_net_savings_bytes=1` 和 `retrieval_tool_loading=on_referenc
 任务失败，projection 任务成功但没有实际投影，因而门禁为 FAIL，v2 不进入正式实验。完整解释
 见该目录的 `REPORT.md`。
 
+早期证据语义压力的预注册协议见 `REAL_MODEL_PROTOCOL_V3.md` 和
+`real_model_protocol_v3.json`。v3 使用 `large_search_context_recall` 进行一对 Preflight，
+目前只完成协议冻结，尚未调用 Provider。v1、v2 与 v3 的结果不得混合。
+
 两条 Preflight 结果使用专用门禁，不能交给要求 12 条正式样本的汇总模式：
 
 ```bash

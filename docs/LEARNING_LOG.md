@@ -630,3 +630,17 @@
   结果是短引用，但最新的 `read_tool_result` 结果恢复了与 baseline 完全相同的原文。
 - 测试同时检查作答前的最后 ModelRequest，避免只凭 ScriptedModel 预写答案宣称证据可用。
   它证明两条信息传递路径的机械闭环，仍不证明真实模型会自主选择回读或正确理解证据。
+
+## 2026-09-15 / Context Projection / v3 真实模型协议冻结
+
+- v3 将 `large_search_context_repair` 和 `large_search_context_recall` 设为配对正式 Case，并只用
+  recall Case 运行 baseline/projection 各一次的 Preflight。
+- 门禁要求两组 Safe Task Success、至少一条真实投影、零失败/取消回读、Provider Usage、
+  完整工件与 45,000/5,000 input/output Token 总预算。成功回读数只记录不强制，因为模型
+  也可能通过中间消息合法保留关键事实。
+- 离线成对路径的累计可见量是 45,615 与 49,356 bytes，只用于判断新 Case 的请求形状。
+  bytes 不是 Token，projection 强制回读时总 bytes 更高也说明不能预设压缩必然省钱。
+- 协议如实记录当前入口不显式设置 temperature，而不虚构 temperature=0。本步没有检查
+  凭据、创建结果目录或调用 Provider。
+- 当前程序会强制 Preflight 预算，但尚不会强制正式样本的总预算和配对顺序。这两项已冻结为操作者
+  停止规则，正式实验前还必须将它们变成机器校验，不能把 JSON 中存在的字段等同于系统已执行。

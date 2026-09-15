@@ -187,7 +187,7 @@ Context Projection 的正式 A/B 批次使用额外的预注册协议参数：
 
 ```bash
 python -m minicode.evaluation_summary <formal-results-root> \
-  --context-protocol benchmarks/context_projection/real_model_protocol_v2.json
+  --context-protocol benchmarks/context_projection/real_model_protocol_v3.json
 ```
 
 该模式不是把所有运行简单相加，而是先按 `Case × Arm` 分组，要求每组拥有协议规定数量的
@@ -199,12 +199,15 @@ python -m minicode.evaluation_summary <formal-results-root> \
 
 ```bash
 python -m minicode.evaluation_summary <preflight-results-root> \
-  --context-preflight-protocol benchmarks/context_projection/real_model_protocol_v2.json
+  --context-preflight-protocol benchmarks/context_projection/real_model_protocol_v3.json
 ```
 
 该模式检查协议快照、每 Arm 一条、Safe Task Success、至少一个被投影的 ToolResult、Provider
 Usage、总 Token 预算、回读失败和每条结果的 answer/trace/workspace patch。证据结构损坏时拒绝；
 证据完整但门禁不达标时输出逐项 `FAIL` 并返回退出码 1。
+
+v2 的历史 Preflight 结果仍必须使用 `real_model_protocol_v2.json` 汇总；上述 v3 命令只适用于
+未来单独保存的 v3 结果目录。
 
 当前未单列一个“未授权副作用计数”。所选 Coding Case 的允许改动由隐藏验收、Workspace
 状态和 Trace 契约共同判定，因此该要求已经包含在每次 Safe Task Success 中；汇总器不会在

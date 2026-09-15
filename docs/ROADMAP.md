@@ -191,3 +191,8 @@ v2 真实 Preflight 已完成并按协议停止：baseline 任务失败，projec
 和协议快照门禁通过。原始证据保存在 `benchmarks/context_projection/results/v2-preflight/`，
 不能补跑覆盖。下一小步不执行正式 12-run，而是离线设计一个能稳定产生足够大历史 ToolResult
 的新 Coding Case，并在真实调用前预注册新协议 ID。
+
+新的 `large_search_context_repair` Case 已完成第一层离线验证：真实 SearchText 输出 2730
+bytes，成为历史结果后，扣除 501-byte 条件式回读 Tool Spec 仍使完整请求净减 2161 bytes；
+隐藏验收也拒绝原 bug、接受仅修改共享超时定义的修复。本步尚未运行完整 Scripted Agent，
+下一小步用固定工具调用序列证明 Case 能端到端触发投影、完成修改和通过验收。

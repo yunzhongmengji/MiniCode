@@ -565,3 +565,16 @@
   Projection activity 失败。v2 按协议停止，不启动 12-run 正式实验。
 - 下一方向：先离线设计能稳定产生足够大历史 ToolResult 的真实 Coding Case，并用 Scripted
   Model 验证投影和回读分支。新 Case 来自观察 v2 后的调整，真实实验必须使用新协议 ID。
+
+## 2026-09-15 / Context Projection / 大搜索结果覆盖 Case
+
+- 新 Case `large_search_context_repair` 模拟多个下游客户端共享默认超时配置。任务本身要求先
+  搜索共享常量的定义和所有调用方，因此大 ToolResult 来自必要的工程探索，不是与任务无关的
+  填充文本。
+- Case 的隐藏验收同时检查默认值、25 个客户端的继承结果、唯一允许改动文件，以及
+  list/search/read/edit/test 五类成功工具证据。模型不能通过只改测试或注册表绕过共享根因。
+- 覆盖测试执行真实 `SearchTextTool`，得到 2730 UTF-8 bytes；再把它放到一条更新 ToolResult
+  之前，使其从“最新未见结果”变成可投影历史。引用替换减少 2662 bytes，条件式回读 Tool
+  Spec 增加 501 bytes，完整 ModelRequest 净减少 2161 bytes，并且只改变这一条历史结果。
+- 本步只证明 Case 数据形状足以触发投影器，还没有证明 Scripted Agent 会按完整工具链完成
+  Case，也没有修改真实实验协议或调用 Provider。下一步才做端到端 Scripted Model 闭环。

@@ -594,3 +594,16 @@
   搜索原文；修改后的工作区通过真实测试和隐藏验收，证明压缩视图没有破坏权威执行状态。
 - 本步仍未调用 Provider，也没有预注册新协议。下一步应冻结新的真实实验协议和 Preflight
   预算；协议一旦提交，才能开始新的付费运行。
+
+## 2026-09-15 / Context Projection / 历史搜索结果回读闭环
+
+- 在同一产品级 Scripted 流程中，测试通过后增加
+  `read_tool_result(call_id="call_search")`。Dispatcher 没有重新执行 SearchTextTool，而是让
+  `RunToolResultSource` 从绑定当前 Run 的最新 Checkpoint 取回原始 2730-byte 结果。
+- 模型请求数变为七轮，投影数为 `0,0,0,1,1,1,1`。最后一轮同时包含旧搜索结果的短引用和
+  最新回读结果的完整原文：旧副本仍可压缩，新结果因为位于历史尾部而受到保护。
+- EventLedger 证明 `search_text` 只成功执行一次、`read_tool_result` 成功一次；最终 RunResult
+  与完成态 Checkpoint 也继续保存原始搜索和回读结果。这排除了“回读其实偷偷重跑搜索”的
+  假实现。
+- 这仍是机械能力验证：ScriptedModel 是预先指定要回读的，不能证明真实模型会自主意识到信息
+  不足。下一步要把“最终答案必须使用早期证据”写进独立 Case 的隐藏验收，再决定真实协议。

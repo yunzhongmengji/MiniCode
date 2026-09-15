@@ -172,7 +172,7 @@ async def test_large_search_result_has_positive_projection_net_savings() -> None
 
 
 @pytest.mark.asyncio
-async def test_scripted_agent_repairs_case_through_projected_context(
+async def test_scripted_agent_repairs_case_and_reads_projected_history(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -210,6 +210,11 @@ async def test_scripted_agent_repairs_case_through_projected_context(
         name="run_tests",
         arguments={"path": "tests/test_timeouts.py"},
     )
+    historical_search_call = ToolCall(
+        call_id="call_restore_search",
+        name="read_tool_result",
+        arguments={"call_id": "call_search"},
+    )
     model = ScriptedModel(
         responses=(
             ModelResponse(
@@ -231,7 +236,17 @@ async def test_scripted_agent_repairs_case_through_projected_context(
                 content="I will verify the shared fix.",
                 tool_calls=(test_call,),
             ),
-            ModelResponse(content="Fixed and verified the shared timeout default."),
+            ModelResponse(
+                content="I need the exact earlier caller evidence for my report.",
+                tool_calls=(historical_search_call,),
+            ),
+            ModelResponse(
+                content=(
+                    "Fixed and verified the shared timeout default. The recovered "
+                    "caller evidence runs from accounting-ledger through "
+                    "transaction-journal."
+                )
+            ),
         )
     )
     event_ledger = InMemoryEventLedger(run_id="run_large_context")
@@ -251,25 +266,27 @@ async def test_scripted_agent_repairs_case_through_projected_context(
                 "read_file": allow,
                 "edit_file": allow,
                 "run_tests": allow,
+                "read_tool_result": allow,
             }
         ),
         event_ledger=event_ledger,
         checkpoint_store=checkpoint_store,
-        max_turns=6,
-        max_tool_calls=5,
+        max_turns=7,
+        max_tool_calls=6,
         max_inline_tool_result_bytes=500,
     )
 
     result = await agent.run((_CASE_ROOT / "task.txt").read_text(encoding="utf-8"))
 
     assert result.stop_reason is StopReason.COMPLETED
-    assert result.response.content == "Fixed and verified the shared timeout default."
+    assert "accounting-ledger" in result.response.content
+    assert "transaction-journal" in result.response.content
     assert (
         (workspace_root / "service_config" / "timeouts.py")
         .read_text(encoding="utf-8")
         .endswith("DEFAULT_REQUEST_TIMEOUT_SECONDS = 30\n")
     )
-    assert len(model.requests) == 6
+    assert len(model.requests) == 7
     full_search_result = next(
         item
         for item in model.requests[2].conversation
@@ -296,6 +313,10 @@ async def test_scripted_agent_repairs_case_through_projected_context(
         spec.name for spec in model.requests[2].tool_specs
     }
     assert "read_tool_result" in {spec.name for spec in model.requests[3].tool_specs}
+    restored_search_result = model.requests[6].conversation[-1]
+    assert isinstance(restored_search_result, ToolResult)
+    assert restored_search_result.call_id == "call_restore_search"
+    assert restored_search_result.output == full_search_result.output
     canonical_search_result = next(
         item
         for item in result.message_history
@@ -319,10 +340,26 @@ async def test_scripted_agent_repairs_case_through_projected_context(
     assert len(projection_mappings) == len(projections)
     assert tuple(
         projection["changed_tool_result_count"] for projection in projection_mappings
-    ) == (0, 0, 0, 1, 1, 1)
+    ) == (0, 0, 0, 1, 1, 1, 1)
     assert tuple(
         projection["total_bytes_saved"] for projection in projection_mappings
-    ) == (0, 0, 0, 2_162, 2_162, 2_162)
+    ) == (0, 0, 0, 2_162, 2_162, 2_162, 2_162)
+    successful_search_executions = tuple(
+        event
+        for event in event_ledger.events
+        if event.kind is EventKind.TOOL_EXECUTION_FINISHED
+        and event.payload.get("tool_name") == "search_text"
+        and event.payload.get("outcome") == "succeeded"
+    )
+    successful_readbacks = tuple(
+        event
+        for event in event_ledger.events
+        if event.kind is EventKind.TOOL_EXECUTION_FINISHED
+        and event.payload.get("tool_name") == "read_tool_result"
+        and event.payload.get("outcome") == "succeeded"
+    )
+    assert len(successful_search_executions) == 1
+    assert len(successful_readbacks) == 1
 
     trace_path = tmp_path / "trace.txt"
     answer_path = tmp_path / "answer.txt"

@@ -439,3 +439,25 @@
   Ruff、format、mypy、全量 pytest 和 `git diff --check`。之后才可创建独立 `preflight/`
   目录，执行同一 Case 的一组 baseline/projection；这两次运行不会计入正式 12-run 结果。
 - 本次只做离线审计，没有提交代码、创建结果目录或调用真实 Provider。
+
+## 2026-09-15 / Context Projection / 真实模型 Preflight
+
+- Preflight 含义：正式实验前的真实系统彩排。它会调用真实 Provider 并完整验证运行、审批、
+  Trace、隐藏验收、Result 和 Artifact，但样本不进入正式统计，也不用于证明总体效果。
+- 固定对照：在 MiniCode `007d4b9` 上，对 `multi_file_inventory_contract` 分别运行一次
+  baseline 和 projection；两次使用独立且相同的初始 Workspace、相同模型和预算。
+- 质量结果：两组均为 5 次模型调用、7 次工具执行，Safe Task Success 通过；最终 Patch 哈希
+  相同，只修改允许的 `inventory.py` 与 `report.py`，且最后一次修改后测试成功。
+- 投影确实命中：projection 在第 4、5 轮各将一个旧 ToolResult 替换为引用，每轮省 411 bytes，
+  合计 822 bytes；模型没有调用 `read_tool_result`，因此三类回读错误均为 0。
+- 端到端成本结果：baseline 为 8559 input / 419 output Token；projection 为 9047 input /
+  422 output Token。projection input 增加 488（约 5.7%），没有得到净 Token 收益。
+- 原因解释：projection 的 canonical bytes 比 baseline 多 2486，主要来自五轮都要携带的额外
+  回读 Tool Spec；扣除 822-byte 内部压缩后，模型可见 bytes 仍多 1664。局部压缩不等于整次
+  运行更省，必须把工具定义和可能增加的轮次一并计算。
+- 预算与证据：两次合计 17606 input / 841 output Token，低于 30000/5000 上限。原始 Answer、
+  Trace、Patch、Result 和协议快照保存在独立 preflight 批次；正式 12-run 实验尚未开始。
+- Preflight 发现的证据缺陷：`ConsoleToolApprover` 的 `input(prompt)` 把人工审批提示写到
+  stdout，而评测把 stdout 保存为 `answer.txt`，导致 Answer 混入三段审批文本。隐藏验收、
+  Trace 和 Token 未因此改变，原始工件也不能事后清洗；但正式实验必须先将提示分流到 stderr
+  并用回归测试证明 Answer 只含模型最终回复。

@@ -1,0 +1,21 @@
+diff --git a/inventory.py b/inventory.py
+index 8cc2f0f..355c559 100644
+--- a/inventory.py
++++ b/inventory.py
+@@ -8,5 +8,5 @@ def inventory_record(
+     """Return the public representation of one inventory item."""
+     return {
+         "name": name,
+-        "quantity": stock,
++        "stock": stock,
+     }
+diff --git a/report.py b/report.py
+index 28d9038..f9e3ef9 100644
+--- a/report.py
++++ b/report.py
+@@ -7,4 +7,4 @@ def render_inventory(
+     record: Mapping[str, str | int],
+ ) -> str:
+     """Render one inventory record."""
+-    return f"{record['name']}: {record['quantity']} units in stock"
++    return f"{record['name']}: {record['stock']} units in stock"

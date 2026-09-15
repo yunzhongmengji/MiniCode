@@ -61,4 +61,6 @@ Token 节省或答案质量。
 定义和确定性决策下的**示意盈亏点**，不是单个引用的通用回读概率，也不是生产阈值。
 
 真实模型阶段的预注册样本、指标、预算和停止条件见 `REAL_MODEL_PROTOCOL.md`；机器可读配置
-保存在 `real_model_protocol.json`。当前状态仍是 `preregistered_not_run`，尚无真实模型结论。
+保存在 `real_model_protocol.json`。一对真实 Provider Preflight 已完成，原始证据和报告保存在
+`results/preflight-007d4b9-qwen3.7-flash-2026-07-15/`；它不进入正式统计。Preflight 发现审批
+提示混入 `answer.txt`，因此正式实验暂停，先修复 stdout/stderr 分流。

@@ -1,6 +1,6 @@
 # Context Projection 真实模型小样本协议
 
-状态：已预注册，尚未运行真实模型。
+状态：真实模型 Preflight 已完成并发现 Answer 捕获污染；正式 12-run 实验暂停。
 
 机器可读配置见 `real_model_protocol.json`。本协议先固定问题、样本、指标、预算和停止条件，
 再实现运行入口；不能根据跑出的结果事后更换有利口径。
@@ -110,4 +110,23 @@ Provider input Token 或上下文指标自相矛盾的记录。正式样本次�
 Token 门禁不达标或回读失败时，报告的 `Advancement gate` 为 `FAIL`。
 
 至此可以进入一对 2-run Preflight，但它会产生真实 Provider 调用和费用，必须单独获得同意后
-才执行；当前仍未调用真实模型。Preflight 通过也不能进入正式统计，只用于验证端到端记录。
+才执行。Preflight 通过也不能进入正式统计，只用于验证端到端记录。
+
+## 7. Preflight 结果
+
+已在 MiniCode `007d4b9` 上使用 `multi_file_inventory_contract` 完成 baseline/projection 各
+一次。两次都是 5 次模型调用、7 次工具执行，最终补丁相同，Safe Task Success 均通过；没有
+失败、取消或成功回读。
+
+projection 在两个模型轮次累计减少 822 个内部投影 bytes，但新增回读 Tool Spec 的重复成本
+更大：Provider input Token 从 baseline 的 8559 增至 9047，即增加 488（约 5.7%）。两次合计
+17606 input Token、841 output Token，未超过 Preflight 预算。
+
+因此结论分成两层：端到端记录链路通过；效率方面出现警告，不能根据 Preflight 声称压缩有效。
+完整原始证据和逐项解释见
+`results/preflight-007d4b9-qwen3.7-flash-2026-07-15/REPORT.md`。正式实验尚未开始，这两次记录
+不得移动到 `formal/` 或计入正式门禁。
+
+此外，两份 `answer.txt` 都混入了人工 Tool Approval 提示。原因是审批输入提示写到 stdout，
+与模型最终回答共用评测捕获流。原始 Artifact 与哈希保留不改，但正式实验必须等提示改写到
+stderr 并有回归测试后才能开始。

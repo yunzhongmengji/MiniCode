@@ -1,0 +1,113 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS multi_file_inventory_contract"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "39a0669111865cef6f2132b85eba4bf74c308ee5546f10c10c27b4a5add06502"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "520f8c24972210bec1b3b717599e7aa81b356e3b487636585ec7df548e636e21"
+    },
+    "workspace_patch": {
+      "file": "workspace.patch",
+      "sha256": "d67ef03f09629ed40b99cf1df778a9af42d90677a3eee9ba1743fb5eb63f470c"
+    }
+  },
+  "case_id": "multi_file_inventory_contract",
+  "case_manifest": {
+    "allowed_changes": [
+      "inventory.py",
+      "report.py"
+    ],
+    "budget": {
+      "max_tool_calls": 8,
+      "max_turns": 8
+    },
+    "case_id": "multi_file_inventory_contract",
+    "category": "multi_file_contract_repair",
+    "forbidden_actions": [
+      "modify tests",
+      "create additional project files"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file"
+      ],
+      "required_successful_tools": [
+        "edit_file",
+        "run_tests"
+      ]
+    }
+  },
+  "context_experiment": {
+    "arm": "projection",
+    "max_inline_tool_result_bytes": 500,
+    "metrics": {
+      "cancelled_readback_count": 0,
+      "canonical_bytes": 32764,
+      "changed_tool_result_count": 2,
+      "failed_readback_count": 0,
+      "model_call_count": 5,
+      "model_visible_bytes": 31942,
+      "projection_bytes_saved": 822,
+      "successful_readback_count": 0
+    },
+    "protocol_id": "context-projection-real-model-pilot-v1",
+    "trace_configuration": {
+      "max_inline_tool_result_bytes": 500,
+      "strategy": "tool_result_reference"
+    }
+  },
+  "minicode_commit": "007d4b974566ce5e7e59c4c9edf0142df34b3e9f",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-15T01:17:32.984665+00:00",
+  "run": {
+    "input_tokens": 9047,
+    "model_call_count": 5,
+    "outcome": "succeeded",
+    "output_tokens": 422,
+    "run_id": "run_dbe18fdaa63943d393dc946fe7586384",
+    "stop_reason": "completed",
+    "tool_execution_count": 7,
+    "tool_requests": {
+      "edit_file": 2,
+      "list_files": 1,
+      "read_file": 3,
+      "run_tests": 1
+    },
+    "turns_used": 5
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [],
+    "requested_forbidden_tools": [],
+    "successful_test_after_last_change": true
+  },
+  "verdict": {
+    "budget_passed": true,
+    "operational_passed": true,
+    "outcome_passed": true,
+    "passed": true,
+    "trace_passed": true
+  },
+  "workspace_status": [
+    " M inventory.py",
+    " M report.py"
+  ]
+}

@@ -1,0 +1,46 @@
+Run ID: run_dbe18fdaa63943d393dc946fe7586384
+Trace run_dbe18fdaa63943d393dc946fe7586384
+001 run_started {"initial_history_items": 1, "max_tool_calls": 8, "max_turns": 8, "total_timeout_seconds": null}
+002 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 268, "tool_call_bytes": 0, "tool_definition_bytes": 3955, "tool_result_bytes": 0, "total_bytes": 4871}, "context_projection": {"changed_tool_result_count": 0, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "tool_result_bytes_after": 0, "tool_result_bytes_before": 0, "tool_result_bytes_saved": 0, "total_bytes_after": 4871, "total_bytes_before": 4871, "total_bytes_saved": 0}, "turn": 1}
+003 model_call_finished {"input_tokens": 1456, "outcome": "succeeded", "output_tokens": 24, "tool_call_count": 1, "turn": 1}
+004 tool_policy_decided {"call_id": "call_f0c98b7453174b7992c0b95b", "outcome": "allow", "reason": "workspace file discovery is allowed", "tool_name": "list_files"}
+005 tool_execution_started {"call_id": "call_f0c98b7453174b7992c0b95b", "tool_name": "list_files"}
+006 tool_execution_finished {"call_id": "call_f0c98b7453174b7992c0b95b", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:4a22ab24362aa730b582d8dc09c396b99468ed6d2af8a33cf6e2de04083eff6b", "byte_count": 83, "media_type": "text/plain"}, "tool_name": "list_files"}
+007 checkpoint_saved {"is_completed": false, "message_history_items": 3, "tool_calls_used": 1, "turns_used": 1}
+008 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 268, "tool_call_bytes": 90, "tool_definition_bytes": 3955, "tool_result_bytes": 163, "total_bytes": 5124}, "context_projection": {"changed_tool_result_count": 0, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "tool_result_bytes_after": 163, "tool_result_bytes_before": 163, "tool_result_bytes_saved": 0, "total_bytes_after": 5124, "total_bytes_before": 5124, "total_bytes_saved": 0}, "turn": 2}
+009 model_call_finished {"input_tokens": 1517, "outcome": "succeeded", "output_tokens": 80, "tool_call_count": 3, "turn": 2}
+010 tool_policy_decided {"call_id": "call_239386b2f6e54337979fc8c3", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+011 tool_execution_started {"call_id": "call_239386b2f6e54337979fc8c3", "tool_name": "read_file"}
+012 tool_execution_finished {"call_id": "call_239386b2f6e54337979fc8c3", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:f3c2d48bf28800e18d04b5e230a21809c2b92a1cfbc5612121640fa6c15c3e45", "byte_count": 294, "media_type": "text/plain"}, "tool_name": "read_file"}
+013 checkpoint_saved {"is_completed": false, "message_history_items": 7, "tool_calls_used": 2, "turns_used": 2}
+014 tool_policy_decided {"call_id": "call_995664175118431e8f4db452", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+015 tool_execution_started {"call_id": "call_995664175118431e8f4db452", "tool_name": "read_file"}
+016 tool_execution_finished {"call_id": "call_995664175118431e8f4db452", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:801f03df68923f990d2bd5925161496b56c0517840bb44aac05765e849b557ce", "byte_count": 292, "media_type": "text/plain"}, "tool_name": "read_file"}
+017 checkpoint_saved {"is_completed": false, "message_history_items": 8, "tool_calls_used": 3, "turns_used": 2}
+018 tool_policy_decided {"call_id": "call_01ddebc79c8548709fd2ea0d", "outcome": "allow", "reason": "workspace reads are allowed", "tool_name": "read_file"}
+019 tool_execution_started {"call_id": "call_01ddebc79c8548709fd2ea0d", "tool_name": "read_file"}
+020 tool_execution_finished {"call_id": "call_01ddebc79c8548709fd2ea0d", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:d5a298b4ea6a13bc58e85228dfbcfe5cd9359a758173ab2531749c2ad17729b7", "byte_count": 531, "media_type": "text/plain"}, "tool_name": "read_file"}
+021 checkpoint_saved {"is_completed": false, "message_history_items": 9, "tool_calls_used": 4, "turns_used": 2}
+022 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 268, "tool_call_bytes": 404, "tool_definition_bytes": 3955, "tool_result_bytes": 1600, "total_bytes": 6875}, "context_projection": {"changed_tool_result_count": 0, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "tool_result_bytes_after": 1600, "tool_result_bytes_before": 1600, "tool_result_bytes_saved": 0, "total_bytes_after": 6875, "total_bytes_before": 6875, "total_bytes_saved": 0}, "turn": 3}
+023 model_call_finished {"input_tokens": 1895, "outcome": "succeeded", "output_tokens": 217, "tool_call_count": 2, "turn": 3}
+024 tool_policy_decided {"call_id": "call_c24c104ac3d5422db31d2cff", "outcome": "ask", "reason": "workspace changes require approval", "tool_name": "edit_file"}
+025 tool_approval_resolved {"approved": true, "call_id": "call_c24c104ac3d5422db31d2cff", "tool_name": "edit_file"}
+026 tool_execution_started {"call_id": "call_c24c104ac3d5422db31d2cff", "tool_name": "edit_file"}
+027 tool_execution_finished {"call_id": "call_c24c104ac3d5422db31d2cff", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:807ba4f0ab0e787ed2c52a7751461e10e17b2dda3e80b513094b8324aa765dc0", "byte_count": 21, "media_type": "text/plain"}, "tool_name": "edit_file"}
+028 checkpoint_saved {"is_completed": false, "message_history_items": 13, "tool_calls_used": 5, "turns_used": 3}
+029 tool_policy_decided {"call_id": "call_6fa87787ab374b8cbfb52df7", "outcome": "ask", "reason": "workspace changes require approval", "tool_name": "edit_file"}
+030 tool_approval_resolved {"approved": true, "call_id": "call_6fa87787ab374b8cbfb52df7", "tool_name": "edit_file"}
+031 tool_execution_started {"call_id": "call_6fa87787ab374b8cbfb52df7", "tool_name": "edit_file"}
+032 tool_execution_finished {"call_id": "call_6fa87787ab374b8cbfb52df7", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:17a25c541edd5d3d388c446ace6539728be2c4d4bb46f5061a874f141f8385ec", "byte_count": 18, "media_type": "text/plain"}, "tool_name": "edit_file"}
+033 checkpoint_saved {"is_completed": false, "message_history_items": 14, "tool_calls_used": 6, "turns_used": 3}
+034 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 571, "tool_call_bytes": 843, "tool_definition_bytes": 3955, "tool_result_bytes": 1374, "total_bytes": 7391}, "context_projection": {"changed_tool_result_count": 1, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "tool_result_bytes_after": 1374, "tool_result_bytes_before": 1785, "tool_result_bytes_saved": 411, "total_bytes_after": 7391, "total_bytes_before": 7802, "total_bytes_saved": 411}, "turn": 4}
+035 model_call_finished {"input_tokens": 2057, "outcome": "succeeded", "output_tokens": 29, "tool_call_count": 1, "turn": 4}
+036 tool_policy_decided {"call_id": "call_7bc9d7f254b64fb2ade7d044", "outcome": "ask", "reason": "running tests requires approval", "tool_name": "run_tests"}
+037 tool_approval_resolved {"approved": true, "call_id": "call_7bc9d7f254b64fb2ade7d044", "tool_name": "run_tests"}
+038 tool_execution_started {"call_id": "call_7bc9d7f254b64fb2ade7d044", "tool_name": "run_tests"}
+039 tool_execution_finished {"call_id": "call_7bc9d7f254b64fb2ade7d044", "outcome": "succeeded", "output_artifact": {"artifact_id": "sha256:2a65b3e70e6bfbb4eb9b9ffb91f4dcd6383e685bd1546efd5b451c200a907c28", "byte_count": 97, "media_type": "text/plain"}, "tool_name": "run_tests"}
+040 checkpoint_saved {"is_completed": false, "message_history_items": 16, "tool_calls_used": 7, "turns_used": 4}
+041 model_call_started {"context_profile": {"instruction_bytes": 648, "message_bytes": 571, "tool_call_bytes": 962, "tool_definition_bytes": 3955, "tool_result_bytes": 1545, "total_bytes": 7681}, "context_projection": {"changed_tool_result_count": 1, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "tool_result_bytes_after": 1545, "tool_result_bytes_before": 1956, "tool_result_bytes_saved": 411, "total_bytes_after": 7681, "total_bytes_before": 8092, "total_bytes_saved": 411}, "turn": 5}
+042 model_call_finished {"input_tokens": 2122, "outcome": "succeeded", "output_tokens": 72, "tool_call_count": 0, "turn": 5}
+043 checkpoint_saved {"is_completed": true, "message_history_items": 16, "tool_calls_used": 7, "turns_used": 5}
+044 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 5}

@@ -642,5 +642,17 @@
   bytes 不是 Token，projection 强制回读时总 bytes 更高也说明不能预设压缩必然省钱。
 - 协议如实记录当前入口不显式设置 temperature，而不虚构 temperature=0。本步没有检查
   凭据、创建结果目录或调用 Provider。
-- 当前程序会强制 Preflight 预算，但尚不会强制正式样本的总预算和配对顺序。这两项已冻结为操作者
+- 当前程序会在结果落盘后强制 Preflight 预算门禁，但尚不会强制正式样本的总预算和配对顺序。这两项已冻结为操作者
   停止规则，正式实验前还必须将它们变成机器校验，不能把 JSON 中存在的字段等同于系统已执行。
+
+## 2026-09-15 / Context Projection / v3 Preflight 就绪审计
+
+- 协议解析、模型/入口本地配置、凭据变量存在性、Case 完整性与 Git 跟踪、Arm 阈值映射、结果目录隔离均
+  通过。凭据内容没有被读取；存在性不证明实时有效性。
+- repair/recall 的 Workspace 指纹相同，任务指纹不同，符合“初始代码受控、早期证据要求不同”的配对设计。
+- stderr 同时承载 Run ID、Approval 和 Trace，不能整份当成规范 Trace。运行文档现要求保留
+  `stderr.raw.txt`，并从唯一 `Trace run_` 标记开始提取 `trace.txt`。
+- Preflight Token 预算是落盘后的机器晋级门禁，不是事前 Provider 硬限流。超限会停止后续阶段，
+  但已发生的调用费用无法撤回。
+- 真实结果应先在仓库外落盘并记录干净 commit，两条都完成后再收录进仓库。提前在仓库内创建未跟踪结果
+  会导致 `minicode_dirty=true`。

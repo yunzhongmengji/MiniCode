@@ -35,9 +35,28 @@ cd "$evaluation_workspace"
 "$project_root/.venv/bin/python" -m minicode.evaluation_run \
   --case-root "$case_root" \
   > >(tee "$result_directory/answer.txt") \
-  2> >(tee "$result_directory/trace.txt" >&2)
+  2> >(tee "$result_directory/stderr.raw.txt" >&2)
 agent_exit_code=$?
+
+trace_marker_count=$(rg -o "Trace run_" "$result_directory/stderr.raw.txt" | wc -l)
+if [ "$trace_marker_count" -ne 1 ]; then
+  echo "expected exactly one Trace run_ marker" >&2
+  exit 1
+fi
+
+awk '
+  found { print; next }
+  {
+    marker = index($0, "Trace run_")
+    if (marker) { found = 1; print substr($0, marker) }
+  }
+  END { if (!found) exit 1 }
+' "$result_directory/stderr.raw.txt" > "$result_directory/trace.txt"
 ```
+
+stderr 不只包含规范 Trace，还包含 Run ID 和人工 Approval 提示。必须先完整保留
+`stderr.raw.txt`，再从唯一的 `Trace run_` 子串开始提取 `trace.txt`。审批提示可能不以
+换行结束，所以不能假定 Trace header 一定位于原始 stderr 的行首。
 
 上下文投影实验可以在这个 Benchmark 专用入口显式选择 Arm：
 

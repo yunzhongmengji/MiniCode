@@ -58,9 +58,10 @@ projection 的每个投影请求更短，但强制回读多出一次请求，所
 
 这些是规范化 JSON 的 UTF-8 bytes，不是 Provider Token，也不用来预先宣布哪个 Arm 更省。
 它们只用于确认 v2 的 30,000 input-token 上限对新路径可能过紧。v3 将两次上限设为
-45,000，仍是硬停止线，不是预期消耗。
+45,000，但这是结果落盘后的机器晋级门禁，不是 Provider 调用前的 input-token 硬限流。它能阻止
+超预算的 Preflight 进入正式实验，但不能保证单次调用永远不超出预期消耗。
 
-## 5. 正式样本与进级标准
+## 5. 正式样本与晋级标准
 
 若 Preflight 通过，正式实验为 `2 cases × 2 arms × 3 repetitions = 12 runs`。每个 Case
 按 `A B / B A / A B` 交替运行，减少固定顺序影响。

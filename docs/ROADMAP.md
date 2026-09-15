@@ -222,3 +222,7 @@ v3 协议 `context-projection-evidence-recall-real-model-pilot-v3` 已预注册�
 Token；正式计划使用 repair/recall 两个配对 Case 共 12 runs。当前未运行 Provider、未建结果目录。
 当前 Preflight 预算有机器门禁，正式总预算和配对顺序仍是操作者规则。下一小步是 v3 只读就绪审计，
 通过后才能询问是否执行付费 Preflight；正式实验前再单独补齐后两项的机器校验。
+
+v3 只读就绪审计已通过：本地协议/模型配置、凭据变量存在性、Case 指纹与 Git 跟踪、Arm 传递、专项测试和结果隔离
+都符合协议。审计同时修正运行文档：原始 stderr 必须保留，规范 Trace 要单独提取。未调用 Provider，
+也未创建 v3 结果目录。下一阶段是两次付费真实 Preflight，需要用户明确同意后才执行。

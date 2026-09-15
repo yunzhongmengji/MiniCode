@@ -490,3 +490,17 @@
 - 实验纪律：v1 Preflight 是始终携带回读 Tool Spec 的旧策略证据，原始结果不追溯修改。
   自适应门槛来自观察 Preflight 后的改进，因此 v1 不再运行正式样本；后续真实验证必须新建
   v2 协议和独立结果目录。
+
+## 2026-09-15 / Context Projection / Trace 可审计配置
+
+- 本步没有改变压缩算法；它把算法已经采用的两项关键决策变成 Trace 中可验证的数据。
+- `minimum_net_savings_bytes=1` 是“完整 ModelRequest 必须严格变小”的精确表达。代码判断从
+  隐含的 `saved <= 0` 改为读取这个具名配置，行为保持一致。
+- `retrieval_tool_loading=on_reference` 表示回读工具已在运行时注册，但其 Tool Spec 只在本轮
+  真正采用引用时进入模型请求。它不同于始终暴露，也不同于引用出现后临时注册执行器。
+- `configuration_schema_version=2` 用来区分历史 v1 工件与新证据。旧结果仍可由汇总器读取；
+  新版结果一旦声明 schema 2，缺少或篡改上述字段就会被拒绝。
+- `QueryLoop` 无需新增分支：它原本就把 Projector 静态配置与本轮投影统计合并写入
+  `MODEL_CALL_STARTED.context_projection`。本步扩展的是静态配置载荷和实验验证契约。
+- 为什么重要：只看 `total_bytes_saved` 无法判断“没命中”“净收益不足而主动放弃”还是
+  “根本没启用”。面试时应能区分配置事实、执行事实和最终效果，三者不能相互代替。

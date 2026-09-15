@@ -114,8 +114,11 @@ def _context_experiment(
         "arm": arm,
         "max_inline_tool_result_bytes": 500 if projected else None,
         "trace_configuration": {
+            "configuration_schema_version": 2,
             "strategy": "tool_result_reference" if projected else "identity",
             "max_inline_tool_result_bytes": 500 if projected else None,
+            "minimum_net_savings_bytes": 1 if projected else None,
+            "retrieval_tool_loading": "on_reference" if projected else None,
         },
         "metrics": {
             "model_call_count": 1,
@@ -408,5 +411,44 @@ def test_context_summary_rejects_result_from_another_protocol(tmp_path: Path) ->
     with pytest.raises(
         ValueError,
         match="protocol_id does not match",
+    ):
+        summarize_context_experiment_results(results_root, protocol_path)
+
+
+def test_context_summary_rejects_missing_versioned_trace_configuration(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1)
+    context_experiment = _context_experiment("projection")
+    trace_configuration = context_experiment["trace_configuration"]
+    assert isinstance(trace_configuration, dict)
+    del trace_configuration["retrieval_tool_loading"]
+    _write_result(
+        results_root,
+        case_id="case_a",
+        accepted=True,
+        model_calls=1,
+        tool_executions=1,
+        input_tokens=90,
+        output_tokens=10,
+        workspace_changes=[],
+        schema_version=2,
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": True,
+            "budget_passed": True,
+            "trace_passed": True,
+            "passed": True,
+        },
+        run_id="run_projection_1",
+        context_experiment=context_experiment,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="context trace configuration is missing retrieval_tool_loading",
     ):
         summarize_context_experiment_results(results_root, protocol_path)

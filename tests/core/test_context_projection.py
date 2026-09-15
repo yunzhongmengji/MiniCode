@@ -4,6 +4,7 @@ from minicode.core.checkpoints import InMemoryCheckpointStore
 from minicode.core.context_projection import (
     IdentityModelContextProjector,
     ToolResultReferenceProjector,
+    describe_context_projector,
 )
 from minicode.core.events import InMemoryEventLedger
 from minicode.core.messages import Message, MessageRole
@@ -48,6 +49,32 @@ async def test_identity_projector_preserves_request() -> None:
     projected = await IdentityModelContextProjector().project(request)
 
     assert projected is request
+
+
+def test_projector_configuration_describes_identity_behavior() -> None:
+    configuration = describe_context_projector(IdentityModelContextProjector())
+
+    assert configuration.to_payload() == {
+        "configuration_schema_version": 2,
+        "strategy": "identity",
+        "max_inline_tool_result_bytes": None,
+        "minimum_net_savings_bytes": None,
+        "retrieval_tool_loading": None,
+    }
+
+
+def test_projector_configuration_describes_adaptive_reference_behavior() -> None:
+    configuration = describe_context_projector(
+        _reference_projector(max_inline_output_bytes=100)
+    )
+
+    assert configuration.to_payload() == {
+        "configuration_schema_version": 2,
+        "strategy": "tool_result_reference",
+        "max_inline_tool_result_bytes": 100,
+        "minimum_net_savings_bytes": 1,
+        "retrieval_tool_loading": "on_reference",
+    }
 
 
 @pytest.mark.asyncio

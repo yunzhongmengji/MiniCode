@@ -125,6 +125,10 @@ def summarize_context_experiment(
     expected_strategy = (
         "identity" if arm is EvaluationArm.BASELINE else "tool_result_reference"
     )
+    expected_minimum_net_savings = None if arm is EvaluationArm.BASELINE else 1
+    expected_retrieval_tool_loading = (
+        None if arm is EvaluationArm.BASELINE else "on_reference"
+    )
     model_visible_bytes = 0
     canonical_bytes = 0
     projection_bytes_saved = 0
@@ -140,8 +144,35 @@ def summarize_context_experiment(
         if event.kind is EventKind.MODEL_CALL_STARTED:
             context_profile = _required_event_mapping(event, "context_profile")
             projection = _required_event_mapping(event, "context_projection")
+            configuration_schema_version = projection.get(
+                "configuration_schema_version"
+            )
             strategy = projection.get("strategy")
             threshold = projection.get("max_inline_tool_result_bytes")
+            minimum_net_savings = projection.get("minimum_net_savings_bytes")
+            retrieval_tool_loading = projection.get("retrieval_tool_loading")
+
+            required_configuration_fields = (
+                "configuration_schema_version",
+                "strategy",
+                "max_inline_tool_result_bytes",
+                "minimum_net_savings_bytes",
+                "retrieval_tool_loading",
+            )
+            missing_configuration_fields = tuple(
+                field
+                for field in required_configuration_fields
+                if field not in projection
+            )
+
+            if missing_configuration_fields:
+                raise ValueError(
+                    "context projection configuration is missing fields: "
+                    + ", ".join(missing_configuration_fields)
+                )
+
+            if configuration_schema_version != 2:
+                raise ValueError("unknown context projection configuration schema")
 
             if not isinstance(strategy, str):
                 raise TypeError("context projection strategy must be a string")
@@ -151,10 +182,25 @@ def summarize_context_experiment(
                     "max_inline_tool_result_bytes must be an integer or null"
                 )
 
-            if strategy != expected_strategy or threshold != expected_threshold:
+            if minimum_net_savings is not None and type(minimum_net_savings) is not int:
+                raise TypeError("minimum_net_savings_bytes must be an integer or null")
+
+            if retrieval_tool_loading is not None and not isinstance(
+                retrieval_tool_loading, str
+            ):
+                raise TypeError("retrieval_tool_loading must be a string or null")
+
+            if (
+                strategy != expected_strategy
+                or threshold != expected_threshold
+                or minimum_net_savings != expected_minimum_net_savings
+                or retrieval_tool_loading != expected_retrieval_tool_loading
+            ):
                 raise ValueError(
                     f"declared context arm {arm.value} disagrees with Trace "
-                    f"configuration {strategy}/{threshold}"
+                    "configuration "
+                    f"{strategy}/{threshold}/{minimum_net_savings}/"
+                    f"{retrieval_tool_loading}"
                 )
 
             visible_bytes = _required_mapping_integer(context_profile, "total_bytes")
@@ -212,8 +258,11 @@ def summarize_context_experiment(
         "arm": arm,
         "max_inline_tool_result_bytes": expected_threshold,
         "trace_configuration": {
+            "configuration_schema_version": 2,
             "strategy": expected_strategy,
             "max_inline_tool_result_bytes": expected_threshold,
+            "minimum_net_savings_bytes": expected_minimum_net_savings,
+            "retrieval_tool_loading": expected_retrieval_tool_loading,
         },
         "metrics": {
             "model_call_count": model_call_count,

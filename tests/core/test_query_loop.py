@@ -1307,8 +1307,11 @@ async def test_query_loop_records_run_boundaries() -> None:
                     "total_bytes": 48,
                 },
                 "context_projection": {
+                    "configuration_schema_version": 2,
                     "strategy": "identity",
                     "max_inline_tool_result_bytes": None,
+                    "minimum_net_savings_bytes": None,
+                    "retrieval_tool_loading": None,
                     "changed_tool_result_count": 0,
                     "tool_result_bytes_before": 0,
                     "tool_result_bytes_after": 0,

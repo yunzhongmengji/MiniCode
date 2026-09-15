@@ -164,3 +164,9 @@ Model 从最终工具集合验证开关；未知 Arm 会在模型创建前失败
 检查 Safe Task Success、汇总/逐 Case input Token 与回读门禁，并拒绝模型、commit、阈值或
 Run ID 不可比的数据。当前仍未调用真实 Provider；下一阶段是经确认后运行一对独立 Preflight，
 先验证端到端结果链，Preflight 不进入 12 次正式统计。
+
+2026-09-15 自适应投影补充：v1 Preflight 证明“局部 ToolResult 变短”仍可能被始终携带的
+回读 Tool Spec 抵消，因此现实现改为只在完整请求至少净省 1 byte 时采用引用，并只在该请求
+暴露 `read_tool_result`。Trace 配置 schema 2 已记录并验证 `minimum_net_savings_bytes=1`
+与 `retrieval_tool_loading=on_reference`；旧 v1 结果保持可读，但不能冒充新策略证据。下一小步
+是预注册 v2 真实模型协议，不在本步调用 Provider。

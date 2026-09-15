@@ -114,8 +114,9 @@ Preflight 与正式结果必须放在不同目录，汇总器只接收正式目�
 Provider input Token 或上下文指标自相矛盾的记录。正式样本次数不足、Safe Task Success 不足、
 Token 门禁不达标或回读失败时，报告的 `Advancement gate` 为 `FAIL`。
 
-本 v1 不再进入正式运行。自适应策略需先建立 v2 协议、补齐 Trace 配置事实，再决定是否执行
-新的付费 Preflight。
+本 v1 不再进入正式运行。自适应策略的 Trace 配置事实已经补齐：schema 2 明示净节省门槛
+和回读 Tool Spec 的按引用加载方式，结果记录与汇总均验证该配置。下一步是建立独立 v2 协议，
+再决定是否执行新的付费 Preflight。
 
 ## 7. Preflight 结果
 

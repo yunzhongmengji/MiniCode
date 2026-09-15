@@ -473,12 +473,40 @@ def _load_recorded_context_experiment(
         path,
     )
     expected_strategy = "identity" if arm == "baseline" else "tool_result_reference"
+    configuration_schema_version = trace_configuration.get(
+        "configuration_schema_version"
+    )
 
     if _required_string(trace_configuration, "strategy", path) != expected_strategy:
         raise ValueError(f"context trace strategy disagrees with arm: {path}")
 
     if trace_configuration.get("max_inline_tool_result_bytes") != threshold:
         raise ValueError(f"context trace threshold disagrees with result: {path}")
+
+    if configuration_schema_version is not None:
+        if configuration_schema_version != 2:
+            raise ValueError(f"unknown context trace configuration schema: {path}")
+
+        expected_minimum_net_savings = None if arm == "baseline" else 1
+        expected_retrieval_tool_loading = None if arm == "baseline" else "on_reference"
+
+        for field in ("minimum_net_savings_bytes", "retrieval_tool_loading"):
+            if field not in trace_configuration:
+                raise ValueError(
+                    f"context trace configuration is missing {field}: {path}"
+                )
+
+        if (
+            trace_configuration.get("minimum_net_savings_bytes")
+            != expected_minimum_net_savings
+        ):
+            raise ValueError(f"context trace net-savings gate disagrees: {path}")
+
+        if (
+            trace_configuration.get("retrieval_tool_loading")
+            != expected_retrieval_tool_loading
+        ):
+            raise ValueError(f"context trace retrieval-tool loading disagrees: {path}")
 
     metrics = _required_mapping(experiment, "metrics", path)
     record = _RecordedContextExperiment(

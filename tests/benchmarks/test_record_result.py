@@ -18,7 +18,7 @@ from minicode.evaluation_trace import TraceEvaluation
 
 _TRACE = """Trace run_001
 001 run_started {"initial_history_items": 1}
-002 model_call_started {"context_profile": {"total_bytes": 100}, "context_projection": {"changed_tool_result_count": 0, "max_inline_tool_result_bytes": null, "strategy": "identity", "total_bytes_after": 100, "total_bytes_before": 100, "total_bytes_saved": 0}, "turn": 1}
+002 model_call_started {"context_profile": {"total_bytes": 100}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": null, "minimum_net_savings_bytes": null, "retrieval_tool_loading": null, "strategy": "identity", "total_bytes_after": 100, "total_bytes_before": 100, "total_bytes_saved": 0}, "turn": 1}
 003 model_call_finished {"input_tokens": 12, "outcome": "succeeded", "output_tokens": 5, "tool_call_count": 1, "turn": 1}
 004 tool_policy_decided {"call_id": "call_001", "outcome": "allow", "reason": "read", "tool_name": "read_file"}
 005 tool_execution_started {"call_id": "call_001", "tool_name": "read_file"}
@@ -28,12 +28,12 @@ _TRACE = """Trace run_001
 
 _PROJECTION_TRACE = """Trace run_002
 001 run_started {"initial_history_items": 1}
-002 model_call_started {"context_profile": {"total_bytes": 90}, "context_projection": {"changed_tool_result_count": 0, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "total_bytes_after": 90, "total_bytes_before": 90, "total_bytes_saved": 0}, "turn": 1}
+002 model_call_started {"context_profile": {"total_bytes": 90}, "context_projection": {"changed_tool_result_count": 0, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "total_bytes_after": 90, "total_bytes_before": 90, "total_bytes_saved": 0}, "turn": 1}
 003 model_call_finished {"input_tokens": 20, "outcome": "succeeded", "output_tokens": 2, "tool_call_count": 1, "turn": 1}
 004 tool_policy_decided {"call_id": "call_restore", "outcome": "allow", "reason": "read", "tool_name": "read_tool_result"}
 005 tool_execution_started {"call_id": "call_restore", "tool_name": "read_tool_result"}
 006 tool_execution_finished {"call_id": "call_restore", "outcome": "succeeded", "tool_name": "read_tool_result"}
-007 model_call_started {"context_profile": {"total_bytes": 60}, "context_projection": {"changed_tool_result_count": 1, "max_inline_tool_result_bytes": 500, "strategy": "tool_result_reference", "total_bytes_after": 60, "total_bytes_before": 160, "total_bytes_saved": 100}, "turn": 2}
+007 model_call_started {"context_profile": {"total_bytes": 60}, "context_projection": {"changed_tool_result_count": 1, "configuration_schema_version": 2, "max_inline_tool_result_bytes": 500, "minimum_net_savings_bytes": 1, "retrieval_tool_loading": "on_reference", "strategy": "tool_result_reference", "total_bytes_after": 60, "total_bytes_before": 160, "total_bytes_saved": 100}, "turn": 2}
 008 model_call_finished {"input_tokens": 15, "outcome": "succeeded", "output_tokens": 3, "tool_call_count": 0, "turn": 2}
 009 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 2}
 """
@@ -101,8 +101,11 @@ def test_context_experiment_summary_validates_trace_configuration() -> None:
         "arm": "baseline",
         "max_inline_tool_result_bytes": None,
         "trace_configuration": {
+            "configuration_schema_version": 2,
             "strategy": "identity",
             "max_inline_tool_result_bytes": None,
+            "minimum_net_savings_bytes": None,
+            "retrieval_tool_loading": None,
         },
         "metrics": {
             "model_call_count": 1,
@@ -129,6 +132,35 @@ def test_context_experiment_summary_rejects_declared_arm_mismatch() -> None:
         )
 
 
+def test_context_experiment_summary_rejects_missing_projection_configuration() -> None:
+    trace = _TRACE.replace(', "minimum_net_savings_bytes": null', "")
+
+    with pytest.raises(
+        ValueError,
+        match="context projection configuration is missing fields: "
+        "minimum_net_savings_bytes",
+    ):
+        summarize_context_experiment(
+            parse_trace(trace),
+            protocol_id="context-projection-real-model-pilot-v2",
+            arm=EvaluationArm.BASELINE,
+        )
+
+
+def test_context_experiment_summary_rejects_tampered_retrieval_tool_loading() -> None:
+    trace = _PROJECTION_TRACE.replace('"on_reference"', '"eager"')
+
+    with pytest.raises(
+        ValueError,
+        match="declared context arm projection disagrees with Trace",
+    ):
+        summarize_context_experiment(
+            parse_trace(trace),
+            protocol_id="context-projection-real-model-pilot-v2",
+            arm=EvaluationArm.PROJECTION,
+        )
+
+
 def test_context_experiment_summary_aggregates_projection_and_readback() -> None:
     summary = summarize_context_experiment(
         parse_trace(_PROJECTION_TRACE),
@@ -138,8 +170,11 @@ def test_context_experiment_summary_aggregates_projection_and_readback() -> None
 
     assert summary["max_inline_tool_result_bytes"] == 500
     assert summary["trace_configuration"] == {
+        "configuration_schema_version": 2,
         "strategy": "tool_result_reference",
         "max_inline_tool_result_bytes": 500,
+        "minimum_net_savings_bytes": 1,
+        "retrieval_tool_loading": "on_reference",
     }
     assert summary["metrics"] == {
         "model_call_count": 2,

@@ -50,6 +50,10 @@ Token 节省或答案质量。
 毛节省不能严格覆盖本轮新增 Tool Spec，就放弃全部候选引用并保持原请求。回读工具已注册在
 运行时中，但只在真正产生引用的模型请求中可见。
 
+该策略不能只存在于代码注释里。每次 `MODEL_CALL_STARTED.context_projection` 都会记录配置
+schema 2、`minimum_net_savings_bytes=1` 和 `retrieval_tool_loading=on_reference`；实验结果
+记录器逐轮验证，已声明 schema 2 的落盘结果若缺失或篡改这些字段，汇总器也会拒绝。
+
 - 不回读：`4571 = 5071 - 500 - 0`，得到净收益。
 - 急切回读：`-5945 = 10142 - 1000 - 15087`，仍因额外回读轮次亏损。
 

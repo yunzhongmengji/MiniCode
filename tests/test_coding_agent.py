@@ -378,6 +378,9 @@ async def test_opt_in_tool_result_references_support_historical_readback(
     assert isinstance(third_projection, Mapping)
     assert third_projection["strategy"] == "tool_result_reference"
     assert third_projection["max_inline_tool_result_bytes"] == 100
+    assert third_projection["configuration_schema_version"] == 2
+    assert third_projection["minimum_net_savings_bytes"] == 1
+    assert third_projection["retrieval_tool_loading"] == "on_reference"
     assert third_projection["changed_tool_result_count"] == 1
     tool_result_bytes_saved = third_projection["tool_result_bytes_saved"]
     total_bytes_saved = third_projection["total_bytes_saved"]

@@ -21,18 +21,29 @@ class ContextProjectionStrategy(StrEnum):
     CUSTOM = "custom"
 
 
+class RetrievalToolLoading(StrEnum):
+    """Stable names for when a projector exposes its retrieval tool."""
+
+    ON_REFERENCE = "on_reference"
+
+
 @dataclass(frozen=True, slots=True)
 class ContextProjectionConfiguration:
     """Trace-visible configuration of one context projector."""
 
     strategy: ContextProjectionStrategy
     max_inline_tool_result_bytes: int | None
+    minimum_net_savings_bytes: int | None
+    retrieval_tool_loading: RetrievalToolLoading | None
 
     def to_payload(self) -> dict[str, str | int | None]:
         """Return a JSON-compatible configuration document."""
         return {
+            "configuration_schema_version": 2,
             "strategy": self.strategy,
             "max_inline_tool_result_bytes": self.max_inline_tool_result_bytes,
+            "minimum_net_savings_bytes": self.minimum_net_savings_bytes,
+            "retrieval_tool_loading": self.retrieval_tool_loading,
         }
 
 
@@ -84,6 +95,16 @@ class ToolResultReferenceProjector:
         """Return the host-controlled inline output threshold."""
         return self._max_inline_output_bytes
 
+    @property
+    def minimum_net_savings_bytes(self) -> int:
+        """Return the smallest complete-request saving that enables projection."""
+        return 1
+
+    @property
+    def retrieval_tool_loading(self) -> RetrievalToolLoading:
+        """Return when the historical-result retrieval tool becomes visible."""
+        return RetrievalToolLoading.ON_REFERENCE
+
     async def project(self, request: ModelRequest) -> ModelRequest:
         """Reference results only when the complete request becomes smaller."""
         retention = plan_tool_result_retention(request.conversation)
@@ -134,7 +155,7 @@ class ToolResultReferenceProjector:
 
         projection = profile_context_projection(request, projected_request)
 
-        if projection.total_bytes_saved <= 0:
+        if projection.total_bytes_saved < self.minimum_net_savings_bytes:
             return request
 
         return projected_request
@@ -148,17 +169,23 @@ def describe_context_projector(
         return ContextProjectionConfiguration(
             strategy=ContextProjectionStrategy.IDENTITY,
             max_inline_tool_result_bytes=None,
+            minimum_net_savings_bytes=None,
+            retrieval_tool_loading=None,
         )
 
     if isinstance(projector, ToolResultReferenceProjector):
         return ContextProjectionConfiguration(
             strategy=ContextProjectionStrategy.TOOL_RESULT_REFERENCE,
             max_inline_tool_result_bytes=projector.max_inline_output_bytes,
+            minimum_net_savings_bytes=projector.minimum_net_savings_bytes,
+            retrieval_tool_loading=projector.retrieval_tool_loading,
         )
 
     return ContextProjectionConfiguration(
         strategy=ContextProjectionStrategy.CUSTOM,
         max_inline_tool_result_bytes=None,
+        minimum_net_savings_bytes=None,
+        retrieval_tool_loading=None,
     )
 
 

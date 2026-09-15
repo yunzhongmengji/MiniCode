@@ -4,10 +4,26 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from enum import StrEnum
 from pathlib import Path
 
 from minicode import cli
 from minicode.evaluation_case import load_case_manifest
+
+
+class EvaluationArm(StrEnum):
+    """Context configuration selected for one evaluation run."""
+
+    BASELINE = "baseline"
+    PROJECTION = "projection"
+
+
+def context_threshold_for_arm(arm: EvaluationArm) -> int | None:
+    """Translate an experiment arm into the Agent's projection threshold."""
+    if arm is EvaluationArm.BASELINE:
+        return None
+
+    return 500
 
 
 def build_coding_run_arguments(
@@ -45,6 +61,13 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Evaluation case containing case.json and task.txt.",
     )
+    parser.add_argument(
+        "--arm",
+        type=EvaluationArm,
+        choices=tuple(EvaluationArm),
+        default=EvaluationArm.BASELINE,
+        help="Context experiment arm (default: baseline).",
+    )
     return parser
 
 
@@ -53,6 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return cli.main(
         build_coding_run_arguments(args.case_root),
+        max_inline_tool_result_bytes=context_threshold_for_arm(args.arm),
     )
 
 

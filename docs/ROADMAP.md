@@ -1,7 +1,12 @@
 # 学习与实现路线
 
-状态：M0 至 M7 与 Coding Agent MVP 已完成；M8 实验暂停在独立 WIP 分支
+状态：M0 至 M7 与 Coding Agent MVP 已完成；文件恢复链路已接入；M9 上下文治理进行中，M8 实验仍暂停在独立 WIP 分支
 节奏：按掌握程度推进，而不是机械追赶周数
+
+2026-09-13 核对后的秋招行动顺序见
+[Agent 面试考点与秋招发展路线](learning/agent-interview-roadmap.md)。
+下方 M0—M13 是主题地图，不要求全部完成才能形成简历项目；当前优先上下文治理，随后
+Skill 产品接入和可纠错项目记忆，安全与评测贯穿各阶段。多 Agent 是收益驱动的可选项。
 
 ## 1. 教学策略
 
@@ -110,6 +115,48 @@ M7 之后的 Coding Agent MVP 收敛记录：
    未知文件位置开始，经发现和调用关系搜索定位共享实现，并精确修改一个文件。
 
 M8 Memory 的实验代码保留在 `wip/m8-memory`，尚未进入主干，也不作为当前产品能力
-对外描述。当前优先进入“秋招可展示 MVP”收敛阶段：增加失败恢复 Case、进行重复
-运行，并准备架构图、演示脚本和限制说明。完成这些证据后，再依据收益决定是否恢复
-M8，而不是机械追赶后续里程碑。
+对外描述。
+
+2026-09-13 当前工作区进度补充：
+
+1. 文件 Checkpoint、`minicode resume`、完成态拒绝恢复和重建 Agent 的恢复集成测试已完成；
+   不保证工具副作用恰好一次，Trace/Artifact 仍为进程内实现。
+2. Result 2 已实现结果、运行状态、预算与 Trace 四维判断，新增记录支持补丁与工件哈希校验；
+   历史证据仅为四个 Case、五次跨版本运行，不能合并成当前版本综合成功率。
+3. M9 已有请求组成画像、保留分类、确定性短引用和当前 Run 原文回读；产品组装支持显式
+   阈值启用闭环，但默认与 CLI 仍发送完整历史，尚未证明 Token 收益或任务质量不下降。
+4. M7 的 Skill 组件虽已完成，但默认 `build_coding_agent()` 尚未传入 Skill Provider；
+   接入产品与任务级收益评测是后续独立阶段。
+
+历史回读底层现已完成两层：`get_tool_result(history, call_id)` 负责纯查找并区分 pending
+与 unknown；`RunToolResultSource` 绑定一个 run_id，只从该 Run 的最新 Checkpoint 查找，
+并拒绝 Store 返回的 Run 不匹配。它们只在显式开启引用组装时通过 Tool 暴露给模型。
+有输出上限的 `ReadToolResultTool` 契约也已完成：模型参数只包含 call_id，查询失败转为
+预期 Tool 错误，宿主固定 UTF-8 byte 上限。默认 Agent 不注册，显式引用组装才注册。
+包含 call_id、原始 UTF-8 byte 数和回读工具名的短 JSON 引用及确定性投影已经完成。
+投影只处理 retention 判定为 eligible、超过阈值且替换后确实更短的结果；最新批次与错误
+结果保留原文。`build_coding_agent()` 现可通过非空阈值同时启用投影器和回读 Tool，并要求
+EventLedger 与 CheckpointStore 以绑定当前 Run；脚本模型闭环测试已通过。默认值仍为关闭，
+CLI 尚无开关。`MODEL_CALL_STARTED` 现同时记录模型可见画像和 canonical/投影对比：变化的
+ToolResult 数、投影前后 ToolResult/总 bytes 及节省值；回读可从已有工具完成事件统计。
+固定的 `eager_historical_readback` 离线对照现可通过
+`.venv/bin/python -m minicode.context_comparison` 复现：开启组内部累计投影省 10142 bytes，
+但强制回读增加一次模型调用，累计模型可见内容反而比关闭组多 6945 bytes。该结果证明压缩
+不天然降低总成本，不是对真实模型质量的结论。`no_historical_readback` 端点也已完成：两组
+都是 3 次模型调用和 2 次工具执行，开启组不回读，内部投影省 5071 bytes；计入新增回读
+Tool Spec 的固定开销后，完整运行仍净少 3571 个模型可见 bytes。两个端点现在分别证明高
+回读可能亏损、零回读可以获益。成本分解报告也已完成：不回读端点满足
+`3571 = 5071 - 1500`，急切回读端点满足 `-6945 = 10142 - 17087`。只按这两个端点线性混合
+时，急切回读型任务占比的示意归零点约为 33.96%；报告明确标记它不是生产阈值。下一小步
+的真实模型协议已经预注册：选择两个较长 Coding Case、两 Arm 各三次，固定 500-byte 阈值、
+交替顺序、质量/Token 门禁及硬预算，共 12 次正式运行，当前状态为未运行。审查发现正式开跑
+前还缺 Benchmark Arm 参数传递、结果配置/上下文字段和分 Arm 汇总。下一小步只实现
+Benchmark 配置传递并用 Scripted Model 验证，普通 CLI 继续默认关闭且不调用真实 Provider。
+该配置链现已完成：`evaluation_run --arm baseline|projection` 分别传入 `None|500`，Scripted
+Model 从最终工具集合验证开关；未知 Arm 会在模型创建前失败。下一小步是扩展结果记录契约，
+保存协议 ID、Arm、阈值和 Trace 中的投影/回读汇总，并校验声明与事件一致。该结果契约现已
+完成：Trace 明示 Projector strategy/阈值，记录器逐轮核对 Arm 并复算 bytes 与回读 outcome；
+普通非实验结果保持兼容。协议化汇总也已完成：它按协议、Case、Arm 和重复次数对齐正式结果，
+检查 Safe Task Success、汇总/逐 Case input Token 与回读门禁，并拒绝模型、commit、阈值或
+Run ID 不可比的数据。当前仍未调用真实 Provider；下一阶段是经确认后运行一对独立 Preflight，
+先验证端到端结果链，Preflight 不进入 12 次正式统计。

@@ -19,5 +19,7 @@
 
 - [M0：工程基础与 CLI](m0-foundations.md)
 - [M1：数据协议与 Fake Model](m1-data-protocols.md)
+- [Agent 面试考点与秋招发展路线](agent-interview-roadmap.md)：当前能力、代码证据、边界、阶段门槛和下一小步。
+- [MiniCode 源码文件地图](project-file-map.md)：Core、Models、Skills、Tools、外层组装与评测的职责和调用链。
 
 每个阶段结束时检查：文件地图、调用链、核心语法、失败模式、测试证据和复习题是否齐全。

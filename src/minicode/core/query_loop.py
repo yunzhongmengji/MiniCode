@@ -14,6 +14,15 @@ from minicode.core.checkpoints import (
     CheckpointStore,
     RunCheckpoint,
 )
+from minicode.core.context_profile import (
+    profile_context_projection,
+    profile_model_request,
+)
+from minicode.core.context_projection import (
+    IdentityModelContextProjector,
+    ModelContextProjector,
+    describe_context_projector,
+)
 from minicode.core.conversation import ConversationItem
 from minicode.core.events import (
     EventKind,
@@ -102,6 +111,7 @@ class QueryLoop:
         checkpoint_store: CheckpointStore | None = None,
         skill_context_provider: (SkillContextProvider | None) = None,
         instructions: Sequence[str] = (),
+        context_projector: ModelContextProjector | None = None,
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -179,6 +189,14 @@ class QueryLoop:
         self._checkpoint_store = checkpoint_store
         self._skill_context_provider = skill_context_provider
         self._instructions = tuple(instructions)
+        self._context_projector = (
+            IdentityModelContextProjector()
+            if context_projector is None
+            else context_projector
+        )
+        self._context_projection_configuration = describe_context_projector(
+            self._context_projector
+        )
 
     def _record_event(
         self,
@@ -200,8 +218,9 @@ class QueryLoop:
         message_history: Sequence[ConversationItem],
         turns_used: int,
         tool_calls_used: int,
+        is_completed: bool = False,
     ) -> None:
-        """Save resumable state when configured."""
+        """Save progress or completed state when configured."""
         checkpoint_store = self._checkpoint_store
 
         if checkpoint_store is None:
@@ -217,6 +236,7 @@ class QueryLoop:
             message_history=message_history,
             turns_used=turns_used,
             tool_calls_used=tool_calls_used,
+            is_completed=is_completed,
         )
 
         checkpoint_store.save(checkpoint)
@@ -227,6 +247,7 @@ class QueryLoop:
                 "turns_used": (checkpoint.turns_used),
                 "tool_calls_used": (checkpoint.tool_calls_used),
                 "message_history_items": len(checkpoint.message_history),
+                "is_completed": checkpoint.is_completed,
             },
         )
 
@@ -346,6 +367,9 @@ class QueryLoop:
         if event_ledger is not None and event_ledger.run_id != checkpoint.run_id:
             raise ValueError("checkpoint run_id does not match event ledger run_id")
 
+        if checkpoint.is_completed:
+            raise ValueError("cannot resume a completed run")
+
         pending_tool_calls = checkpoint.pending_tool_calls
 
         if pending_tool_calls and self._tool_runtime is None:
@@ -418,15 +442,31 @@ class QueryLoop:
             first_turn,
             self._max_turns + 1,
         ):
-            request = ModelRequest(
+            canonical_request = ModelRequest(
                 conversation=message_history,
                 tool_specs=self._tool_specs,
                 instructions=instructions,
             )
+            request = await self._context_projector.project(canonical_request)
+
+            if not isinstance(request, ModelRequest):
+                raise TypeError("context projector must return a ModelRequest")
+
+            context_profile = profile_model_request(request)
+            context_projection = profile_context_projection(
+                canonical_request,
+                request,
+            )
+
             self._record_event(
                 EventKind.MODEL_CALL_STARTED,
                 {
                     "turn": turn,
+                    "context_profile": context_profile.to_payload(),
+                    "context_projection": {
+                        **self._context_projection_configuration.to_payload(),
+                        **context_projection.to_payload(),
+                    },
                 },
             )
 
@@ -475,6 +515,12 @@ class QueryLoop:
             )
 
             if not response.tool_calls:
+                self._save_checkpoint(
+                    message_history=message_history,
+                    turns_used=turn,
+                    tool_calls_used=tool_calls_used,
+                    is_completed=True,
+                )
                 return RunResult(
                     stop_reason=StopReason.COMPLETED,
                     response=response,

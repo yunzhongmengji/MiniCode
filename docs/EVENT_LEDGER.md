@@ -95,7 +95,7 @@ LedgerEvent(
 | `SKILL_SELECTION_FINISHED` | 完成候选选择并记录 Skill 名称与分数 |
 | `SKILL_LOAD_STARTED` | 开始读取一份已选 Skill 正文 |
 | `SKILL_LOAD_FINISHED` | Skill 加载成功、失败或取消 |
-| `MODEL_CALL_STARTED` | 发起一次模型调用 |
+| `MODEL_CALL_STARTED` | 发起一次模型调用；记录模型可见画像及投影前后 byte 差异 |
 | `MODEL_CALL_FINISHED` | 模型调用成功、失败或取消 |
 | `TOOL_POLICY_DECIDED` | Policy 返回 Allow、Ask 或 Deny |
 | `TOOL_APPROVAL_RESOLVED` | 人工审批返回批准或拒绝 |
@@ -105,6 +105,14 @@ LedgerEvent(
 | `RUN_FINISHED` | 当前运行段结束 |
 
 多个组件必须共享同一个 EventLedger，才能得到全局顺序。QueryLoop 记录运行和模型事件，Dispatcher 记录策略、审批和工具事件。
+
+`MODEL_CALL_STARTED.context_profile` 描述真正发送给模型的请求；`context_projection` 对比
+canonical request 与模型视图，记录 ToolResult 变化数量、投影前后 ToolResult/总字节及
+二者差值，同时记录稳定的 `strategy` 和 `max_inline_tool_result_bytes` 配置。配置字段用于
+区分“启用了投影但本轮没有命中”和“使用 Identity”；不能只凭节省值是否为 0 猜测 Arm。
+Identity Projector 的差值为 0。这里仍是规范化 JSON 的 UTF-8 byte，不是供应商 Token。
+历史回读次数不重复增加专用计数器，可按 `TOOL_EXECUTION_FINISHED` 中
+`tool_name == "read_tool_result"` 和 outcome 汇总。
 
 ## 4. outcome 的上下文
 
@@ -150,10 +158,13 @@ RunCheckpoint(
     message_history=(...),
     turns_used=1,
     tool_calls_used=1,
+    is_completed=False,
 )
 ~~~
 
 checkpoint 在每一个 ToolResult 加入历史后立即保存，而不是等一整批工具全部执行完成。
+这些中间状态的 `is_completed` 为 `False`。模型返回没有 ToolCall 的最终答复时，再保存一份
+`is_completed=True` 的终态；只有这次写入成功，QueryLoop 才向调用者返回 COMPLETED。
 
 假设模型一次返回两个工具调用：
 
@@ -179,6 +190,7 @@ RunCheckpoint 会验证：
 3. 每个 ToolCall 最多只有一个 ToolResult。
 4. `tool_calls_used` 等于实际 ToolResult 数量。
 5. message history 被复制成不可变 tuple。
+6. 完成状态不能包含尚无 ToolResult 的 pending ToolCall。
 
 错误 ToolResult 也表示一次工具调用已经完成。恢复时不能因为 `is_error=True` 就自动重试；错误结果应交给模型决定下一步。
 
@@ -188,11 +200,12 @@ RunCheckpoint 会验证：
 
 1. 验证输入确实是 RunCheckpoint。
 2. 验证 checkpoint run ID 与 EventLedger run ID 一致。
-3. 使用 `pending_tool_calls` 找出没有对应 ToolResult 的调用。
-4. 验证剩余回合和工具调用预算。
-5. 只执行 pending 工具调用。
-6. 每完成一个工具，再保存一个 checkpoint。
-7. 从 `turns_used + 1` 开始继续模型循环。
+3. 拒绝 `is_completed=True` 的终态 checkpoint。
+4. 使用 `pending_tool_calls` 找出没有对应 ToolResult 的调用。
+5. 验证剩余回合和工具调用预算。
+6. 只执行 pending 工具调用。
+7. 每完成一个工具，再保存一个 checkpoint。
+8. 从 `turns_used + 1` 开始继续模型循环。
 
 普通运行从 `first_turn = 1`、`tool_calls_used = 0` 开始。恢复运行从 checkpoint 中已有计数继续，不会重置预算。
 
@@ -246,8 +259,9 @@ Event Ledger 是审计能力，不是安全执行边界。Policy、Approval、Wo
 
 ## 11. 当前限制
 
-- EventLedger、ArtifactStore 和 CheckpointStore 当前只有内存实现，进程退出后数据丢失。
-- 尚未提供 JSONL、SQLite 或数据库持久化。
+- CLI 已接入保存每个 run 最新 JSON 的 FileCheckpointStore，并能按 Run ID 恢复未完成任务；
+  EventLedger 和 ArtifactStore 当前仍只有内存实现，进程退出后数据丢失。
+- 尚未提供 Event 的 JSONL、SQLite 或数据库持久化，也没有 Checkpoint 历史版本存储。
 - 尚未记录墙上时间、单调时间或跨进程 trace ID。
 - RunReplay 只验证基础序号、run ID 和边界，没有实现完整事件状态机校验。
 - 事件不能单独重建 message history；真实恢复必须读取 Checkpoint。

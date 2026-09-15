@@ -6,7 +6,11 @@ import pytest
 
 from minicode.tools.base import ToolExecutionError
 from minicode.tools.git_diff import GitDiffArguments, GitDiffTool
-from minicode.tools.process import AsyncioProcessRunner, ProcessResult
+from minicode.tools.process import (
+    AsyncioProcessRunner,
+    ProcessOutputLimitError,
+    ProcessResult,
+)
 from minicode.workspace import Workspace
 
 
@@ -68,6 +72,7 @@ async def test_git_diff_tool_builds_fixed_commands_and_reports_changes(
         (
             (
                 "git",
+                "--literal-pathspecs",
                 "--no-pager",
                 "status",
                 "--short",
@@ -81,6 +86,7 @@ async def test_git_diff_tool_builds_fixed_commands_and_reports_changes(
         (
             (
                 "git",
+                "--literal-pathspecs",
                 "--no-pager",
                 "diff",
                 "--no-ext-diff",
@@ -147,6 +153,35 @@ async def test_git_diff_tool_translates_process_timeout(tmp_path: Path) -> None:
         await tool.execute(GitDiffArguments())
 
     assert isinstance(exc_info.value.__cause__, TimeoutError)
+
+
+@pytest.mark.asyncio
+async def test_git_diff_tool_translates_process_output_limit(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedProcessRunner(
+        (
+            ProcessOutputLimitError(
+                stream_name="stderr",
+                max_bytes=100,
+            ),
+        )
+    )
+    tool = GitDiffTool(
+        Workspace(tmp_path),
+        runner=runner,
+    )
+
+    with pytest.raises(
+        ToolExecutionError,
+        match="Git stderr exceeds the 100-byte process limit",
+    ) as exc_info:
+        await tool.execute(GitDiffArguments())
+
+    assert isinstance(
+        exc_info.value.__cause__,
+        ProcessOutputLimitError,
+    )
 
 
 @pytest.mark.asyncio
@@ -222,3 +257,24 @@ async def test_git_diff_tool_runs_against_real_repository(
     assert "?? new.txt" in output
     assert "-before" in output
     assert "+after" in output
+
+
+@pytest.mark.asyncio
+async def test_git_diff_tool_treats_git_pathspec_magic_as_a_literal_path(
+    changed_git_repository: Path,
+) -> None:
+    repository = changed_git_repository
+    workspace_root = repository / "workspace"
+    workspace_root.mkdir()
+    tool = GitDiffTool(
+        Workspace(workspace_root),
+        runner=AsyncioProcessRunner(),
+    )
+
+    output = await tool.execute(
+        GitDiffArguments(
+            path=":(top)**",
+        )
+    )
+
+    assert output == "No Git changes found."

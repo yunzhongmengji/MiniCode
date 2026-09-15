@@ -42,7 +42,14 @@ minicode run "检查相关代码并运行测试"
 minicode run "检查相关代码并运行测试" --trace
 ```
 
-`list_files`、`read_file`、`search_text` 和 `git_diff` 默认允许；`create_file`、`edit_file` 和 `run_tests` 每次调用都需要终端确认。命令运行目录是 Workspace 根目录。当前 Trace、Event 和 Artifact 只保存在进程内，尚不提供跨进程恢复或持久审计。
+如果命令在至少一个工具完成并保存 Checkpoint 后中断，可以使用原命令打印的 Run ID
+继续执行：
+
+```bash
+minicode resume run_0123456789abcdef
+```
+
+`list_files`、`read_file`、`search_text` 和 `git_diff` 默认允许；`create_file`、`edit_file` 和 `run_tests` 每次调用都需要终端确认。命令运行目录是 Workspace 根目录。CLI 会输出 Run ID，并把工具完成后产生的最新 Checkpoint 保存到 Workspace 隔离的用户状态目录；`resume` 必须在同一 Workspace 中使用该 Run ID。Trace、Event 和 Artifact 仍只保存在进程内。
 
 ## 项目证据
 

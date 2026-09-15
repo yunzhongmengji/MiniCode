@@ -96,7 +96,8 @@ OS Sandbox / Container：最终隔离边界
 - Workspace 的“解析—检查—打开”不是原子操作，仍存在符号链接被并发替换的 TOCTOU 风险。
 - Workspace 尚未原子确认目标为普通文件；FIFO、设备文件或特殊挂载仍需要文件类型规则、超时与 OS Sandbox 防护。
 - 当前 Policy 只按工具名称配置，Approval 已有内存事件，但还没有一次性令牌、过期时间或持久审计后端。
-- 子进程继承当前环境，stdout/stderr 由 `communicate()` 全量保存在内存中，尚未实现环境变量白名单和输出 byte 上限。
+- 子进程只继承显式环境白名单，但测试代码仍可读取 Workspace 中的秘密文件；stdout
+  与 stderr 已在读取阶段分别限制 bytes，但当前没有内容脱敏或安全的流式落盘。
 - 超时只直接终止 pytest 进程，尚未建立独立进程组来保证其所有后代进程同时退出。
 - Event、Artifact 和 Checkpoint 当前仅存内存，尚未实现持久化、秘密脱敏、访问控制和崩溃一致性。
 - 当前只开放固定 pytest 命令，不支持任意 Shell；应用层 argv 和路径规则不能替代 OS 级隔离。

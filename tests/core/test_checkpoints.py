@@ -133,6 +133,18 @@ def test_run_checkpoint_rejects_invalid_tool_history() -> None:
 
     with pytest.raises(
         ValueError,
+        match="completed checkpoint must not contain pending tool calls",
+    ):
+        RunCheckpoint(
+            run_id="run_001",
+            message_history=(tool_call,),
+            turns_used=1,
+            tool_calls_used=0,
+            is_completed=True,
+        )
+
+    with pytest.raises(
+        ValueError,
         match="tool call ids must be unique",
     ):
         RunCheckpoint(

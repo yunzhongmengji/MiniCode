@@ -50,6 +50,19 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
 
 `resume(checkpoint)` 使用同一运行边界，但从 checkpoint 中保存的回合、工具计数和历史继续。它只执行没有匹配 ToolResult 的 pending ToolCall，再进入下一模型回合。
 
+持久化恢复的第一层是稳定 JSON 编解码。Checkpoint JSON 第 2 版保存 `run_id`、完整
+`message_history`、`turns_used`、`tool_calls_used` 和 `is_completed`；历史中的 `Message`、`ToolCall`
+和 `ToolResult` 分别携带 `message`、`tool_call`、`tool_result` 类型标签。解码后仍由
+`RunCheckpoint` 重新验证历史配对与计数不变量。`FileCheckpointStore` 使用 run ID 的
+SHA-256 作为安全文件名，并通过“临时文件写完后原子替换”保存每个 run 的最新 JSON。
+Codec 可以把第 1 版 JSON 读取为未完成状态，但旧文件没有最终状态信息，因此不能追溯
+判断旧任务是否其实已经完成。
+`build_coding_agent()` 已可通过 `CheckpointStore` 协议接收内存或文件实现。CLI 按
+Workspace 路径隔离状态目录，为每次 `minicode run` 创建文件 Store 并在开始时输出
+Run ID；`minicode resume <run_id>` 会在同一 Workspace 的隔离目录中读取最新状态并调用
+`CodingAgent.resume()`。恢复命令创建新的进程内 Ledger，但继续使用原 Run ID；完整的
+跨进程事件链目前仍未持久化。
+
 ## 4. 停止原因
 
 - `COMPLETED`
@@ -106,6 +119,8 @@ Query Loop 负责协调 Model、ToolRuntime 和对话历史。Model 只产生文
 - 工具调用仍然顺序执行。
 - Query Loop 当前使用 `Model.complete()`；Model Adapter 虽已支持流式事件，但尚未接入 Query Loop 的实时消费路径或 CLI/UI。
 - `asyncio.timeout()` 是协作式取消边界；如果某段同步代码长时间不交还事件循环，超时不能在其执行中途强制中断它。
-- M6 已提供内存 Event、Artifact、Checkpoint 和 Replay；尚无跨进程持久后端、事件状态机验证或崩溃时外部副作用的事务保证。
+- M6 已提供内存 Event、Artifact、Checkpoint 和 Replay；Checkpoint 已有文件后端和 CLI
+  恢复入口。Event 与 Artifact 仍无持久后端，也没有事件状态机验证或崩溃时外部副作用的
+  事务保证。
 - M7 的 Skill 路由使用关键词基线，只在一次运行开始时选择和加载；尚无语义召回、版本解析或组合 Token 预算。
 - Event Ledger 只提供观察和恢复证据；应用层路径与 argv 规则仍不能提供宿主机级隔离。

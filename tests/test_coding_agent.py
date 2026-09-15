@@ -1,4 +1,6 @@
+import json
 from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +10,10 @@ from minicode.coding_agent import (
     build_default_coding_policy,
 )
 from minicode.core.artifacts import InMemoryArtifactStore
+from minicode.core.checkpoints import (
+    InMemoryCheckpointStore,
+    RunCheckpoint,
+)
 from minicode.core.events import EventKind, InMemoryEventLedger
 from minicode.core.messages import Message, MessageRole
 from minicode.core.model import ModelResponse
@@ -20,6 +26,7 @@ from minicode.core.tool_policy import (
 )
 from minicode.models.scripted import ScriptedModel
 from minicode.tools.process import AsyncioProcessRunner
+from minicode.tools.scripted import ScriptedToolRuntime
 from minicode.workspace import Workspace
 
 
@@ -38,6 +45,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
             "read_file",
             "search_text",
             "git_diff",
+            "read_tool_result",
             "create_file",
             "edit_file",
             "run_tests",
@@ -50,6 +58,7 @@ def test_default_coding_policy_separates_observation_and_side_effects() -> None:
         "read_file": PolicyOutcome.ALLOW,
         "search_text": PolicyOutcome.ALLOW,
         "git_diff": PolicyOutcome.ALLOW,
+        "read_tool_result": PolicyOutcome.ALLOW,
         "create_file": PolicyOutcome.ASK,
         "edit_file": PolicyOutcome.ASK,
         "run_tests": PolicyOutcome.ASK,
@@ -83,8 +92,77 @@ async def test_coding_agent_starts_query_loop_from_task() -> None:
 
 
 @pytest.mark.asyncio
+async def test_coding_agent_resumes_only_pending_tool_calls() -> None:
+    first_call = ToolCall(
+        call_id="call_001",
+        name="read_file",
+        arguments={"path": "README.md"},
+    )
+    pending_call = ToolCall(
+        call_id="call_002",
+        name="read_file",
+        arguments={"path": "docs/ROADMAP.md"},
+    )
+    first_result = ToolResult(
+        call_id="call_001",
+        output="README contents.",
+    )
+    pending_result = ToolResult(
+        call_id="call_002",
+        output="Roadmap contents.",
+    )
+    checkpoint = RunCheckpoint(
+        run_id="run_001",
+        message_history=(
+            Message(
+                role=MessageRole.USER,
+                content="Read both files.",
+            ),
+            first_call,
+            pending_call,
+            first_result,
+        ),
+        turns_used=1,
+        tool_calls_used=1,
+    )
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(
+                content="Both files have been read.",
+            ),
+        ),
+    )
+    tool_runtime = ScriptedToolRuntime(
+        results=(pending_result,),
+    )
+    agent = CodingAgent(
+        query_loop=QueryLoop(
+            model=model,
+            tool_runtime=tool_runtime,
+            max_turns=2,
+            max_tool_calls=2,
+            event_ledger=InMemoryEventLedger(
+                run_id="run_001",
+            ),
+        ),
+    )
+
+    result = await agent.resume(checkpoint)
+
+    resumed_history = (
+        *checkpoint.message_history,
+        pending_result,
+    )
+    assert tool_runtime.calls == (pending_call,)
+    assert model.calls == (resumed_history,)
+    assert result.message_history == resumed_history
+    assert result.turns_used == 2
+    assert result.stop_reason is StopReason.COMPLETED
+
+
+@pytest.mark.asyncio
 async def test_build_coding_agent_exposes_and_executes_default_tools(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     readme_path = tmp_path / "README.md"
     readme_path.write_text(
@@ -113,6 +191,7 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
         run_id="run_001",
     )
     artifact_store = InMemoryArtifactStore()
+    checkpoint_store = InMemoryCheckpointStore()
     agent = build_coding_agent(
         model=model,
         workspace=Workspace(tmp_path),
@@ -127,6 +206,7 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
         process_runner=AsyncioProcessRunner(),
         event_ledger=event_ledger,
         artifact_store=artifact_store,
+        checkpoint_store=checkpoint_store,
     )
 
     result = await agent.run("Inspect README.md.")
@@ -160,6 +240,23 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
     )
     assert result.stop_reason is StopReason.COMPLETED
     assert result.response.content == ("README.md describes MiniCode.")
+    assert checkpoint_store.latest("run_001") == RunCheckpoint(
+        run_id="run_001",
+        message_history=(
+            Message(
+                role=MessageRole.USER,
+                content="Inspect README.md.",
+            ),
+            tool_call,
+            ToolResult(
+                call_id="call_001",
+                output=('File "README.md":\nMiniCode is a coding agent.\n'),
+            ),
+        ),
+        turns_used=2,
+        tool_calls_used=1,
+        is_completed=True,
+    )
     event_kinds = tuple(event.kind for event in event_ledger.events)
     assert event_kinds.index(EventKind.MODEL_CALL_FINISHED) < event_kinds.index(
         EventKind.TOOL_POLICY_DECIDED
@@ -189,8 +286,141 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
 
 
 @pytest.mark.asyncio
+async def test_opt_in_tool_result_references_support_historical_readback(
+    tmp_path: Path,
+) -> None:
+    old_content = "historical evidence\n" * 40
+    (tmp_path / "old.txt").write_text(old_content, encoding="utf-8")
+    (tmp_path / "latest.txt").write_text("latest evidence\n", encoding="utf-8")
+    old_read_call = ToolCall(
+        call_id="call_read_old",
+        name="read_file",
+        arguments={"path": "old.txt"},
+    )
+    latest_read_call = ToolCall(
+        call_id="call_read_latest",
+        name="read_file",
+        arguments={"path": "latest.txt"},
+    )
+    historical_read_call = ToolCall(
+        call_id="call_restore_old",
+        name="read_tool_result",
+        arguments={"call_id": "call_read_old"},
+    )
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(content="", tool_calls=(old_read_call,)),
+            ModelResponse(content="", tool_calls=(latest_read_call,)),
+            ModelResponse(content="", tool_calls=(historical_read_call,)),
+            ModelResponse(content="Historical evidence recovered."),
+        )
+    )
+    event_ledger = InMemoryEventLedger(run_id="run_context_001")
+    checkpoint_store = InMemoryCheckpointStore()
+    agent = build_coding_agent(
+        model=model,
+        workspace=Workspace(tmp_path),
+        process_runner=AsyncioProcessRunner(),
+        event_ledger=event_ledger,
+        checkpoint_store=checkpoint_store,
+        max_turns=4,
+        max_tool_calls=3,
+        max_inline_tool_result_bytes=100,
+    )
+
+    result = await agent.run("Compare the old and latest evidence.")
+
+    full_old_output = f'File "old.txt":\n{old_content}'
+    assert tuple(spec.name for spec in model.requests[0].tool_specs)[-1] == (
+        "read_tool_result"
+    )
+    assert model.requests[1].conversation[-1] == ToolResult(
+        call_id="call_read_old",
+        output=full_old_output,
+    )
+
+    projected_old_result = model.requests[2].conversation[2]
+    assert isinstance(projected_old_result, ToolResult)
+    assert json.loads(projected_old_result.output) == {
+        "call_id": "call_read_old",
+        "kind": "historical_tool_result_reference",
+        "original_output_bytes": len(full_old_output.encode("utf-8")),
+        "retrieval_tool": "read_tool_result",
+    }
+    assert model.requests[3].conversation[-1] == ToolResult(
+        call_id="call_restore_old",
+        output=full_old_output,
+    )
+
+    canonical_old_result = result.message_history[2]
+    assert canonical_old_result == ToolResult(
+        call_id="call_read_old",
+        output=full_old_output,
+    )
+    assert result.message_history[-1] == ToolResult(
+        call_id="call_restore_old",
+        output=full_old_output,
+    )
+    checkpoint = checkpoint_store.latest("run_context_001")
+    assert checkpoint is not None
+    assert checkpoint.message_history == result.message_history
+    assert checkpoint.is_completed is True
+    model_started_events = tuple(
+        event
+        for event in event_ledger.events
+        if event.kind is EventKind.MODEL_CALL_STARTED
+    )
+    third_projection = model_started_events[2].payload["context_projection"]
+    assert isinstance(third_projection, Mapping)
+    assert third_projection["strategy"] == "tool_result_reference"
+    assert third_projection["max_inline_tool_result_bytes"] == 100
+    assert third_projection["changed_tool_result_count"] == 1
+    tool_result_bytes_saved = third_projection["tool_result_bytes_saved"]
+    total_bytes_saved = third_projection["total_bytes_saved"]
+    assert isinstance(tool_result_bytes_saved, int)
+    assert isinstance(total_bytes_saved, int)
+    assert tool_result_bytes_saved > 0
+    assert total_bytes_saved > 0
+    successful_readback_events = tuple(
+        event
+        for event in event_ledger.events
+        if event.kind is EventKind.TOOL_EXECUTION_FINISHED
+        and event.payload.get("tool_name") == "read_tool_result"
+        and event.payload.get("outcome") == "succeeded"
+    )
+    assert len(successful_readback_events) == 1
+
+
+def test_tool_result_references_require_retrievable_run_state(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="tool-result references require an event_ledger for run binding",
+    ):
+        build_coding_agent(
+            model=ScriptedModel(responses=(ModelResponse(content="Done."),)),
+            workspace=Workspace(tmp_path),
+            process_runner=AsyncioProcessRunner(),
+            max_inline_tool_result_bytes=100,
+        )
+
+
+def test_tool_result_references_require_checkpoint_store(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="tool-result references require a checkpoint_store for retrieval",
+    ):
+        build_coding_agent(
+            model=ScriptedModel(responses=(ModelResponse(content="Done."),)),
+            workspace=Workspace(tmp_path),
+            process_runner=AsyncioProcessRunner(),
+            event_ledger=InMemoryEventLedger(run_id="run_context_001"),
+            max_inline_tool_result_bytes=100,
+        )
+
+
+@pytest.mark.asyncio
 async def test_coding_agent_repairs_file_and_runs_real_tests(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     source_path = tmp_path / "calculator.py"
     source_path.write_text(

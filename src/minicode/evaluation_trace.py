@@ -13,11 +13,16 @@ class TraceEvaluation:
 
     missing_required_tools: tuple[str, ...]
     requested_forbidden_tools: tuple[str, ...]
+    successful_test_after_last_change: bool | None = None
 
     @property
     def passed(self) -> bool:
         """Return whether the trace has no missing or forbidden tools."""
-        return not self.missing_required_tools and not self.requested_forbidden_tools
+        return (
+            not self.missing_required_tools
+            and not self.requested_forbidden_tools
+            and self.successful_test_after_last_change is not False
+        )
 
 
 def evaluate_trace_expectations(
@@ -28,6 +33,8 @@ def evaluate_trace_expectations(
     """Compare successful executions and requests with one case contract."""
     successful_tools: set[str] = set()
     requested_tools: set[str] = set()
+    last_successful_change_sequence: int | None = None
+    last_successful_test_sequence: int | None = None
 
     for event in replay.events:
         if event.kind is EventKind.TOOL_POLICY_DECIDED:
@@ -37,7 +44,25 @@ def evaluate_trace_expectations(
             event.kind is EventKind.TOOL_EXECUTION_FINISHED
             and event.payload.get("outcome") == "succeeded"
         ):
-            successful_tools.add(_tool_name(event.payload.get("tool_name")))
+            tool_name = _tool_name(event.payload.get("tool_name"))
+            successful_tools.add(tool_name)
+
+            if tool_name in {"create_file", "edit_file"}:
+                last_successful_change_sequence = event.sequence
+
+            if tool_name == "run_tests":
+                last_successful_test_sequence = event.sequence
+
+    successful_test_after_last_change: bool | None = None
+
+    if (
+        last_successful_change_sequence is not None
+        and "run_tests" in expectations.required_successful_tools
+    ):
+        successful_test_after_last_change = (
+            last_successful_test_sequence is not None
+            and last_successful_test_sequence > last_successful_change_sequence
+        )
 
     return TraceEvaluation(
         missing_required_tools=tuple(
@@ -50,6 +75,7 @@ def evaluate_trace_expectations(
             for tool in expectations.forbidden_tool_requests
             if tool in requested_tools
         ),
+        successful_test_after_last_change=(successful_test_after_last_change),
     )
 
 

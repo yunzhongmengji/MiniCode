@@ -37,6 +37,17 @@ cd "$evaluation_workspace"
 agent_exit_code=$?
 ```
 
+上下文投影实验可以在这个 Benchmark 专用入口显式选择 Arm：
+
+```bash
+"$project_root/.venv/bin/python" -m minicode.evaluation_run \
+  --case-root "$case_root" \
+  --arm projection
+```
+
+省略 `--arm` 等于 `baseline`。该参数没有加入普通 `minicode run`，projection 当前只用于
+预注册实验；在结果记录器能够保存 Arm、阈值和上下文统计之前，不应进行正式付费运行。
+
 `evaluation_prepare` 创建一个新的临时目录，只复制 Case 的 `workspace/`，然后初始化
 Git 并提交 `evaluation baseline`。它不会复制 `case.json`、`task.txt` 或隐藏的
 `acceptance.py`，输出的唯一一行是临时工作区路径，供 Shell 保存到
@@ -63,6 +74,18 @@ model_name="${DASHSCOPE_MODEL:-qwen3.7-flash-2026-07-15}"
   --agent-exit-code "$agent_exit_code"
 ```
 
+记录 Context Projection 实验时，必须把与运行阶段相同的 Arm 和预注册协议 ID 一起交给
+记录器：
+
+```bash
+--context-protocol-id context-projection-real-model-pilot-v1 \
+--context-arm projection
+```
+
+记录器不会直接相信这两个参数。它会读取 Trace 中每轮的 Projector strategy 和阈值；声明
+为 projection 但 Trace 实际为 identity（反之亦然）时拒绝生成结果。普通非实验结果可省略
+这两个参数，但二者不能只提供一个。
+
 成功时输出：
 
 ```text
@@ -74,15 +97,17 @@ PASS <case_name>: /tmp/.../result.json
 
 不要把 `acceptance.py` 复制进工作区。它代表评测者掌握、模型不可见的检查。
 
-`result.json` 不重复保存回答或 Trace 正文，而是记录文件名和 SHA-256。请将
-`answer.txt`、`trace.txt` 和 `result.json` 作为同一个原始结果目录保留。记录器使用
-排他创建模式；如果 `result.json` 已存在，会拒绝覆盖历史记录。
+`result.json` 不重复保存回答、Trace 或代码补丁正文，而是记录文件名和 SHA-256。
+结果记录器会在隐藏验收之前把 Agent 对已跟踪文件的修改保存为 `workspace.patch`。
+请将 `answer.txt`、`trace.txt`、`workspace.patch` 和 `result.json` 作为同一个原始
+结果目录保留。记录器使用排他创建模式；如果 `result.json` 或 `workspace.patch` 已
+存在，会拒绝覆盖历史记录。
 
 ## 保存和汇总结果
 
-经过验收的原始结果按批次保存在 `results/`。每个 Case 的 `answer.txt`、
-`trace.txt` 和 `result.json` 必须一起保留；JSON 中的 SHA-256 用于确认前两个文件
-仍是记录时的原始内容。
+经过验收的原始结果按批次保存在 `results/`。新记录的每个 Case 必须一起保留
+`answer.txt`、`trace.txt`、`workspace.patch` 和 `result.json`；JSON 中的 SHA-256
+用于确认前三个文件仍是记录时的原始内容。历史批次不会被追溯补写补丁。
 
 汇总器递归读取一个批次中的 `result.json`，只聚合已记录事实，不会再次调用模型或
 修改验收结论：
@@ -94,3 +119,15 @@ PASS <case_name>: /tmp/.../result.json
 
 当前基线每个 Case 只有一次正式运行，因此汇总中的 `3/3` 只能描述这个小样本批次，
 不能表述为 MiniCode 的一般任务成功率。
+
+预注册的 Context Projection A/B 实验使用严格的正式结果目录：
+
+```bash
+.venv/bin/python -m minicode.evaluation_summary \
+  benchmarks/context_projection/results/formal \
+  --context-protocol benchmarks/context_projection/real_model_protocol.json
+```
+
+不要把 `preflight/` 放到 `formal/` 下面。该汇总会检查每个 Case/Arm 的重复次数、不同 Run ID、
+Safe Task Success、input Token 对比、逐 Case 退化和回读失败；协议、模型、阈值或 commit 混杂
+会直接拒绝，而不是生成一个看似可比较的平均数。

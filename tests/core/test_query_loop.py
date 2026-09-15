@@ -72,6 +72,76 @@ async def test_query_loop_completes_on_text_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_query_loop_persists_text_completion_and_refuses_resume() -> None:
+    store = InMemoryCheckpointStore()
+    model = ScriptedModel(responses=[ModelResponse(content="Done.")])
+    loop = QueryLoop(
+        model=model,
+        event_ledger=InMemoryEventLedger(run_id="run_001"),
+        checkpoint_store=store,
+    )
+    await loop.run((Message(role=MessageRole.USER, content="Explain the project."),))
+    checkpoint = store.latest("run_001")
+
+    assert checkpoint is not None
+    assert checkpoint.is_completed is True
+    assert checkpoint.turns_used == 1
+
+    resumed_model = ScriptedModel(responses=[])
+    runtime = ScriptedToolRuntime(results=[])
+    ledger = InMemoryEventLedger(run_id="run_001")
+    resumed_loop = QueryLoop(
+        model=resumed_model,
+        tool_runtime=runtime,
+        event_ledger=ledger,
+        max_turns=8,
+    )
+
+    with pytest.raises(ValueError, match="cannot resume a completed run"):
+        await resumed_loop.resume(checkpoint)
+
+    assert resumed_model.calls == ()
+    assert runtime.calls == ()
+    assert ledger.events == ()
+
+
+@pytest.mark.asyncio
+async def test_query_loop_does_not_report_success_when_completion_save_fails() -> None:
+    class FailingCompletionStore(InMemoryCheckpointStore):
+        def save(self, checkpoint: RunCheckpoint) -> None:
+            if checkpoint.is_completed:
+                raise OSError("simulated completion write failure")
+            super().save(checkpoint)
+
+    tool_call = ToolCall(call_id="call_001", name="read_file", arguments={})
+    tool_result = ToolResult(call_id="call_001", output="README contents.")
+    store = FailingCompletionStore()
+    ledger = InMemoryEventLedger(run_id="run_001")
+    loop = QueryLoop(
+        model=ScriptedModel(
+            responses=[
+                ModelResponse(content="", tool_calls=(tool_call,)),
+                ModelResponse(content="Done."),
+            ]
+        ),
+        tool_runtime=ScriptedToolRuntime(results=[tool_result]),
+        max_turns=2,
+        checkpoint_store=store,
+        event_ledger=ledger,
+    )
+
+    with pytest.raises(OSError, match="simulated completion write failure"):
+        await loop.run((Message(role=MessageRole.USER, content="Read README.md."),))
+
+    checkpoint = store.latest("run_001")
+    assert checkpoint is not None
+    assert checkpoint.is_completed is False
+    assert checkpoint.tool_calls_used == 1
+    assert ledger.events[-1].kind is EventKind.RUN_FINISHED
+    assert ledger.events[-1].payload == {"outcome": "failed", "error_type": "OSError"}
+
+
+@pytest.mark.asyncio
 async def test_query_loop_stops_for_pending_tool_calls() -> None:
     tool_call = ToolCall(
         call_id="call_001",
@@ -235,8 +305,9 @@ async def test_query_loop_executes_scripted_tool_and_continues() -> None:
     assert checkpoint_store.latest("run_001") == RunCheckpoint(
         run_id="run_001",
         message_history=second_history,
-        turns_used=1,
+        turns_used=2,
         tool_calls_used=1,
+        is_completed=True,
     )
     checkpoint_events = tuple(
         event
@@ -253,6 +324,18 @@ async def test_query_loop_executes_scripted_tool_and_continues() -> None:
                 "turns_used": 1,
                 "tool_calls_used": 1,
                 "message_history_items": 4,
+                "is_completed": False,
+            },
+        ),
+        LedgerEvent(
+            run_id="run_001",
+            sequence=7,
+            kind=EventKind.CHECKPOINT_SAVED,
+            payload={
+                "turns_used": 2,
+                "tool_calls_used": 1,
+                "message_history_items": 4,
+                "is_completed": True,
             },
         ),
     )
@@ -416,14 +499,16 @@ async def test_query_loop_resumes_only_pending_tool_calls() -> None:
     assert checkpoint_store.latest("run_001") == RunCheckpoint(
         run_id="run_001",
         message_history=resumed_history,
-        turns_used=1,
+        turns_used=2,
         tool_calls_used=2,
+        is_completed=True,
     )
     assert tuple(event.kind for event in event_ledger.events) == (
         EventKind.RUN_RESUMED,
         EventKind.CHECKPOINT_SAVED,
         EventKind.MODEL_CALL_STARTED,
         EventKind.MODEL_CALL_FINISHED,
+        EventKind.CHECKPOINT_SAVED,
         EventKind.RUN_FINISHED,
     )
 
@@ -441,7 +526,7 @@ async def test_query_loop_resumes_only_pending_tool_calls() -> None:
 
     assert event_ledger.events[-1] == LedgerEvent(
         run_id="run_001",
-        sequence=5,
+        sequence=6,
         kind=EventKind.RUN_FINISHED,
         payload={
             "outcome": "succeeded",
@@ -1213,6 +1298,25 @@ async def test_query_loop_records_run_boundaries() -> None:
             kind=EventKind.MODEL_CALL_STARTED,
             payload={
                 "turn": 1,
+                "context_profile": {
+                    "instruction_bytes": 0,
+                    "message_bytes": 48,
+                    "tool_definition_bytes": 0,
+                    "tool_call_bytes": 0,
+                    "tool_result_bytes": 0,
+                    "total_bytes": 48,
+                },
+                "context_projection": {
+                    "strategy": "identity",
+                    "max_inline_tool_result_bytes": None,
+                    "changed_tool_result_count": 0,
+                    "tool_result_bytes_before": 0,
+                    "tool_result_bytes_after": 0,
+                    "tool_result_bytes_saved": 0,
+                    "total_bytes_before": 48,
+                    "total_bytes_after": 48,
+                    "total_bytes_saved": 0,
+                },
             },
         ),
         LedgerEvent(

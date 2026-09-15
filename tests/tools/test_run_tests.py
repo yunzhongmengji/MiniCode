@@ -18,6 +18,7 @@ from minicode.tools.base import ToolExecutionError
 from minicode.tools.dispatcher import ToolDispatcher
 from minicode.tools.process import (
     AsyncioProcessRunner,
+    ProcessOutputLimitError,
     ProcessResult,
 )
 from minicode.tools.registry import ToolRegistry
@@ -75,6 +76,23 @@ class TimingOutProcessRunner:
     ) -> ProcessResult:
         del command, cwd, timeout_seconds
         raise TimeoutError("simulated process timeout")
+
+
+class OutputLimitProcessRunner:
+    """Simulate a process exceeding its stdout limit."""
+
+    async def run(
+        self,
+        command: Sequence[str],
+        *,
+        cwd: Path,
+        timeout_seconds: float,
+    ) -> ProcessResult:
+        del command, cwd, timeout_seconds
+        raise ProcessOutputLimitError(
+            stream_name="stdout",
+            max_bytes=100,
+        )
 
 
 class FixedRunTestsApprover:
@@ -215,13 +233,50 @@ async def test_run_tests_tool_builds_fixed_pytest_command(
                 sys.executable,
                 "-m",
                 "pytest",
-                "tests",
                 "-q",
+                "--",
+                "tests",
             ),
             tmp_path.resolve(),
             30.0,
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_run_tests_tool_separates_normalized_path_from_pytest_options(
+    tmp_path: Path,
+) -> None:
+    dash_prefixed_file = tmp_path / "-x"
+    dash_prefixed_file.touch()
+    runner = RecordingProcessRunner(
+        result=ProcessResult(
+            exit_code=0,
+            stdout="1 passed in 0.10s\n",
+            stderr="",
+        ),
+    )
+    tool = RunTestsTool(
+        workspace=Workspace(
+            root=tmp_path,
+        ),
+        runner=runner,
+    )
+
+    await tool.execute(
+        RunTestsArguments(
+            path="./-x",
+        )
+    )
+
+    assert runner.calls[0][0] == (
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "--",
+        "-x",
+    )
 
 
 @pytest.mark.asyncio
@@ -396,6 +451,33 @@ async def test_run_tests_tool_translates_process_timeout(
     assert isinstance(
         exc_info.value.__cause__,
         TimeoutError,
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_tests_tool_translates_process_output_limit(
+    tmp_path: Path,
+) -> None:
+    tests_directory = tmp_path / "tests"
+    tests_directory.mkdir()
+    tool = RunTestsTool(
+        workspace=Workspace(tmp_path),
+        runner=OutputLimitProcessRunner(),
+    )
+
+    with pytest.raises(
+        ToolExecutionError,
+        match="pytest stdout exceeds the 100-byte limit",
+    ) as exc_info:
+        await tool.execute(
+            RunTestsArguments(
+                path="tests",
+            )
+        )
+
+    assert isinstance(
+        exc_info.value.__cause__,
+        ProcessOutputLimitError,
     )
 
 

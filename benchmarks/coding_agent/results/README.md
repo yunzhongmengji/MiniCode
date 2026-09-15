@@ -1,12 +1,16 @@
 # Recorded Coding Agent Results
 
 Each child directory is one immutable evaluation batch. A batch name identifies
-the MiniCode commit and model used for its runs. Every case keeps these three
-files together:
+the MiniCode commit and model used for its runs. Newly recorded cases keep these
+four files together:
 
 - `answer.txt`: complete CLI standard output, including approval prompts.
 - `trace.txt`: append-only event trace printed by `--trace`.
+- `workspace.patch`: the Agent's tracked-file changes captured before acceptance.
 - `result.json`: deterministic acceptance result and aggregate counters.
+
+Older immutable batches predate patch capture and keep their original three
+files; they are not modified retroactively.
 
 The initial `baseline-9b9fcb6-qwen3.7-flash-2026-07-15` batch contains one
 formal run per case. It is useful as reproducible baseline evidence, but its

@@ -280,13 +280,14 @@ async def test_run_replay_summarizes_complete_tool_run(
     assert replay.outcome == "succeeded"
     assert replay.model_call_count == 2
     assert replay.tool_execution_count == 1
-    assert replay.checkpoint_count == 1
+    assert replay.checkpoint_count == 2
 
     checkpoint = checkpoint_store.latest("run_001")
 
     assert checkpoint is not None
-    assert checkpoint.turns_used == 1
+    assert checkpoint.turns_used == 2
     assert checkpoint.tool_calls_used == 1
+    assert checkpoint.is_completed is True
     assert checkpoint.pending_tool_calls == ()
 
     tool_finished_event = next(

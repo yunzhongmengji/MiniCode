@@ -49,10 +49,10 @@ Dispatcher 先进行工具专属 Schema 验证，再调用 Policy。这样非法
 | 工具 | 行为 | 主要限制 |
 |---|---|---|
 | `search_text` | 在文件或目录中进行 literal substring search | Workspace 路径、稳定文件顺序、文件数、单文件 bytes、结果数 |
-| `git_diff` | 查看 Git 状态和已跟踪文件相对 `HEAD` 的差异 | Workspace 路径、固定 argv、`--` 参数分隔、超时、返回内容 bytes |
+| `git_diff` | 查看 Git 状态和已跟踪文件相对 `HEAD` 的差异 | Workspace 路径、固定 argv、`--literal-pathspecs`、`--` 参数分隔、超时、返回内容 bytes |
 | `create_file` | 创建一个不存在的 UTF-8 文本文件 | Workspace 路径、完整内容 bytes、目标必须不存在、原子创建 |
 | `edit_file` | 将一个唯一的 `old_text` 精确替换为 `new_text` | Workspace 路径、UTF-8、源文件/完整结果 bytes、必须恰好匹配一次 |
-| `run_tests` | 对一个工作区文件或目录运行固定 pytest 命令 | Workspace 路径、拒绝 `-` 开头参数、固定 argv、正数超时 |
+| `run_tests` | 对一个工作区文件或目录运行固定 pytest 命令 | Workspace 路径、拒绝直接传入的选项、固定 argv、`--` 参数分隔、正数超时 |
 
 编辑要求 `old_text` 恰好出现一次。出现零次说明模型上下文可能过期，出现多次说明目标有歧义；两种情况都拒绝猜测。写入时先在同一目录生成临时文件、保留原权限，再使用 `os.replace()` 替换，因此替换失败时原文件仍然存在。
 
@@ -77,24 +77,39 @@ RunTestsTool 构造固定参数序列：
     sys.executable,
     "-m",
     "pytest",
-    relative_path,
     "-q",
+    "--",
+    relative_path,
 )
 ~~~
 
 AsyncioProcessRunner 使用 `create_subprocess_exec(*command)`。每个元素作为单独 argv 传给进程，分号、`&&` 或 `$()` 不会被 shell 解释为新命令。
 
+ProcessRunner 不继承完整父进程环境，而是只复制 `PATH`、locale、临时目录和
+`SYSTEMROOT` 等运行基础变量。API Key、`PYTHONPATH` 和 `PYTEST_ADDOPTS` 等未明确
+允许的变量不会进入 pytest 或 Git 子进程。白名单能覆盖未来新增但尚未命名的凭据，
+而逐项删除秘密变量的黑名单容易遗漏。
+
 无 shell 不能自动解决参数注入。如果模型把 `--rootdir=/tmp` 放在 path 位置，pytest 自己仍会把它解释为选项。因此 `RunTestsArguments` 额外拒绝所有以 `-` 开头的路径。
 
-GitDiffTool 同样使用固定参数序列，并在模型路径前加入 `--`。Git 把 `--` 后面的值一律解释为路径，所以即使路径以 `-` 开头，也不会被解释成 Git 配置项。它还显式关闭外部 diff 和 textconv，避免只读复核意外启动仓库配置的外部转换程序。
+GitDiffTool 同样使用固定参数序列，并在模型路径前加入 `--`，阻止路径被解释成
+普通 Git 选项；同时使用 `--literal-pathspecs`，阻止 `:(top)`、`*` 等内容被解释成
+Git pathspec 语法。它还显式关闭外部 diff 和 textconv，避免只读复核意外启动仓库
+配置的外部转换程序。
 
 ## 6. 超时与错误分层
 
-ProcessRunner 超时时负责：
+ProcessRunner 同时读取 stdout 和 stderr，每个流默认最多保留 1,000,000 bytes。读取期间
+一旦任一流超限，就抛出 `ProcessOutputLimitError`，而不是把不完整输出伪装成一次成功
+执行。RunTestsTool 和 GitDiffTool 再将它翻译为带工具名称的 `ToolExecutionError`。
 
-1. `kill()` 终止直接子进程。
-2. 再次 `communicate()` 等待退出并清理管道。
-3. 裸 `raise` 保留原始 TimeoutError。
+ProcessRunner 超时、输出超限或被调用者取消时负责：
+
+1. 取消仍在读取 stdout/stderr 的内部 Task；
+2. `kill()` 终止直接子进程；
+3. `wait()` 等待并回收进程；
+4. 保留原始异常语义：超时继续抛出 `TimeoutError`，取消继续抛出
+   `CancelledError`。
 
 RunTestsTool 捕获该 TimeoutError，将其翻译为包含限制时间的 ToolExecutionError。Dispatcher 最后生成 `ToolResult(is_error=True)`。两层捕获分别负责资源生命周期和工具语义，不是重复处理。
 
@@ -102,8 +117,10 @@ RunTestsTool 捕获该 TimeoutError，将其翻译为包含限制时间的 ToolE
 
 - Workspace 的路径检查与随后打开之间存在 TOCTOU 窗口。
 - 原子替换降低部分写入风险，但不是版本控制、事务或并发冲突检测。
-- pytest 子进程继承当前环境，尚未建立环境变量白名单。
-- stdout/stderr 仍由 `communicate()` 全量保存；GitDiffTool 会限制返回给模型的内容，但尚未从进程管道读取阶段限制内存占用。
+- 环境白名单降低凭据经环境变量泄漏的风险，但测试代码仍可读取 Workspace 中的秘密
+  文件，也仍然拥有当前用户的文件和网络权限。
+- stdout 与 stderr 分别设置 byte 上限，因此一次进程最多仍可能保留两个上限的内容和
+  少量管道缓冲；当前没有流式落盘或尾部摘要。
 - 超时只直接终止 pytest 进程，尚未保证其所有后代进程同时退出。
 - Policy 当前按工具名配置；Approval 已记录内存事件，但尚无持久审计、一次性令牌或过期机制。
 - 没有 OS Sandbox，当前实现不允许任意 Shell，也不应被描述为宿主机隔离。

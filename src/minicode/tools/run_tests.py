@@ -5,7 +5,7 @@ import sys
 from pydantic import Field, field_validator
 
 from minicode.tools.base import ToolExecutionError
-from minicode.tools.process import ProcessRunner
+from minicode.tools.process import ProcessOutputLimitError, ProcessRunner
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
 from minicode.workspace import (
@@ -111,8 +111,9 @@ class RunTestsTool:
             sys.executable,
             "-m",
             "pytest",
-            relative_path,
             "-q",
+            "--",
+            relative_path,
         )
 
         try:
@@ -124,6 +125,10 @@ class RunTestsTool:
         except TimeoutError as error:
             raise ToolExecutionError(
                 f"pytest timed out after {self._timeout_seconds} seconds"
+            ) from error
+        except ProcessOutputLimitError as error:
+            raise ToolExecutionError(
+                f"pytest {error.stream_name} exceeds the {error.max_bytes}-byte limit"
             ) from error
 
         stdout = result.stdout.strip()

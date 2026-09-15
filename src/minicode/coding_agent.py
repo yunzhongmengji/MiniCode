@@ -1,6 +1,9 @@
 """Product-level entry point and composition for coding tasks."""
 
 from minicode.core.artifacts import ArtifactStore
+from minicode.core.checkpoints import CheckpointStore, RunCheckpoint
+from minicode.core.context_projection import ToolResultReferenceProjector
+from minicode.core.context_retrieval import RunToolResultSource
 from minicode.core.events import EventLedger
 from minicode.core.messages import Message, MessageRole
 from minicode.core.model import Model
@@ -19,6 +22,7 @@ from minicode.tools.git_diff import GitDiffTool
 from minicode.tools.list_files import ListFilesTool
 from minicode.tools.process import ProcessRunner
 from minicode.tools.read_file import ReadFileTool
+from minicode.tools.read_tool_result import ReadToolResultTool
 from minicode.tools.registry import ToolRegistry
 from minicode.tools.run_tests import RunTestsTool
 from minicode.tools.search_text import SearchTextTool
@@ -55,6 +59,10 @@ def build_default_coding_policy() -> ConfiguredToolPolicy:
             "git_diff": PolicyDecision(
                 outcome=PolicyOutcome.ALLOW,
                 reason="workspace Git change inspection is allowed",
+            ),
+            "read_tool_result": PolicyDecision(
+                outcome=PolicyOutcome.ALLOW,
+                reason="current-run historical result reads are allowed",
             ),
             "create_file": PolicyDecision(
                 outcome=PolicyOutcome.ASK,
@@ -102,6 +110,13 @@ class CodingAgent:
             )
         )
 
+    async def resume(
+        self,
+        checkpoint: RunCheckpoint,
+    ) -> RunResult:
+        """Resume one interrupted coding task from validated state."""
+        return await self._query_loop.resume(checkpoint)
+
 
 def build_coding_agent(
     *,
@@ -110,15 +125,40 @@ def build_coding_agent(
     process_runner: ProcessRunner,
     event_ledger: EventLedger | None = None,
     artifact_store: ArtifactStore | None = None,
+    checkpoint_store: CheckpointStore | None = None,
     policy: ToolPolicy | None = None,
     approver: ToolApprover | None = None,
     max_turns: int = 8,
     max_tool_calls: int = 8,
     total_timeout_seconds: float | None = None,
+    max_inline_tool_result_bytes: int | None = None,
 ) -> CodingAgent:
     """Compose the default bounded coding tools into one agent."""
     resolved_policy = build_default_coding_policy() if policy is None else policy
     registry = ToolRegistry()
+    context_projector = None
+    historical_result_tool = None
+
+    if max_inline_tool_result_bytes is not None:
+        if event_ledger is None:
+            raise ValueError(
+                "tool-result references require an event_ledger for run binding"
+            )
+
+        if checkpoint_store is None:
+            raise ValueError(
+                "tool-result references require a checkpoint_store for retrieval"
+            )
+
+        context_projector = ToolResultReferenceProjector(
+            max_inline_output_bytes=max_inline_tool_result_bytes,
+        )
+        historical_result_tool = ReadToolResultTool(
+            RunToolResultSource(
+                checkpoint_store,
+                run_id=event_ledger.run_id,
+            )
+        )
 
     for tool in (
         ListFilesTool(workspace),
@@ -137,6 +177,9 @@ def build_coding_agent(
     ):
         registry.register(tool)
 
+    if historical_result_tool is not None:
+        registry.register(historical_result_tool)
+
     dispatcher = ToolDispatcher(
         registry=registry,
         policy=resolved_policy,
@@ -152,7 +195,9 @@ def build_coding_agent(
         tool_specs=registry.specs,
         total_timeout_seconds=total_timeout_seconds,
         event_ledger=event_ledger,
+        checkpoint_store=checkpoint_store,
         instructions=(_CODING_AGENT_INSTRUCTION,),
+        context_projector=context_projector,
     )
 
     return CodingAgent(

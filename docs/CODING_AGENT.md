@@ -42,7 +42,16 @@ CLI task
   → RunResult
 ```
 
-`CodingAgent.run()` 只负责把一个非空任务字符串转换成首条用户 `Message`。`build_coding_agent()` 是组合根：它注册默认工具、创建 Dispatcher，并把同一组工具的 `ToolSpec` 交给 QueryLoop。没有 `tool_specs`，模型就不知道可以调用哪些工具。
+`CodingAgent.run()` 只负责把一个非空任务字符串转换成首条用户 `Message`；
+`CodingAgent.resume()` 接收已加载的 `RunCheckpoint` 并委托 QueryLoop 补完 pending
+ToolCall。`build_coding_agent()` 是组合根：它注册默认工具、创建 Dispatcher，并把同一组
+工具的 `ToolSpec` 交给 QueryLoop。没有 `tool_specs`，模型就不知道可以调用哪些工具。
+
+CLI 的两条执行路径共用同一个组合函数：`run` 把任务字符串交给 `CodingAgent.run()`；
+`resume` 根据当前 Workspace 和 Run ID 读取最新文件 Checkpoint，再把对象交给
+`CodingAgent.resume()`。恢复时 EventLedger 必须复用 Checkpoint 的 Run ID，否则底层会
+拒绝把两个任务的状态混在一起。`--max-turns` 与 `--max-tool-calls` 表示整个任务的总预算，
+Checkpoint 中已经消耗的数量不会在恢复时清零。
 
 ## 2. 默认工具与权限
 
@@ -140,6 +149,8 @@ CLI 将可解释的边界错误转换成稳定消息和退出码：
 ## 7. 当前限制
 
 - CLI 使用 `Model.complete()`，还没有实时消费模型流式事件。
+- `resume` 只能读取当前 Workspace 的最新 checkpoint；已完成任务会被拒绝，但还没有列出
+  可恢复任务或持久化整条跨进程 Event 链的能力。
 - EventLedger 和 ArtifactStore 没有磁盘实现，进程退出后不能按 ID 读取历史内容。
 - Trace 默认不记录完整工具参数或输出正文，避免无界日志和秘密泄漏；因此只凭事件不能还原每个读取路径。
 - Console Approval 是当前进程内的一次性确认，没有持久授权、过期或外部身份认证。

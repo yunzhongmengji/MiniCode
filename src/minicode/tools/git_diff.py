@@ -5,7 +5,11 @@ from collections.abc import Sequence
 from pydantic import Field, field_validator
 
 from minicode.tools.base import ToolExecutionError
-from minicode.tools.process import ProcessResult, ProcessRunner
+from minicode.tools.process import (
+    ProcessOutputLimitError,
+    ProcessResult,
+    ProcessRunner,
+)
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
 from minicode.workspace import Workspace, WorkspacePathError
@@ -99,6 +103,7 @@ class GitDiffTool:
         relative_path = selected_path.relative_to(self._workspace.root).as_posix()
         status_command = (
             "git",
+            "--literal-pathspecs",
             "--no-pager",
             "status",
             "--short",
@@ -108,6 +113,7 @@ class GitDiffTool:
         )
         diff_command = (
             "git",
+            "--literal-pathspecs",
             "--no-pager",
             "diff",
             "--no-ext-diff",
@@ -163,6 +169,10 @@ class GitDiffTool:
         except TimeoutError as error:
             raise ToolExecutionError(
                 f"Git change inspection timed out after {self._timeout_seconds} seconds"
+            ) from error
+        except ProcessOutputLimitError as error:
+            raise ToolExecutionError(
+                f"Git {error.stream_name} exceeds the {error.max_bytes}-byte process limit"
             ) from error
 
     @staticmethod

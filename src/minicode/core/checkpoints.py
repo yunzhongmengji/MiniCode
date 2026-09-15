@@ -22,6 +22,7 @@ class RunCheckpoint:
     message_history: Sequence[ConversationItem]
     turns_used: int
     tool_calls_used: int
+    is_completed: bool = False
 
     def __post_init__(self) -> None:
         """Validate and snapshot resumable state."""
@@ -97,6 +98,12 @@ class RunCheckpoint:
 
         if self.tool_calls_used != len(completed_tool_call_ids):
             raise ValueError("tool_calls_used must equal completed tool calls")
+
+        if type(self.is_completed) is not bool:
+            raise TypeError("is_completed must be a boolean")
+
+        if self.is_completed and seen_tool_call_ids != completed_tool_call_ids:
+            raise ValueError("completed checkpoint must not contain pending tool calls")
 
         object.__setattr__(
             self,

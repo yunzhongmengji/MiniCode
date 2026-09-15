@@ -331,9 +331,12 @@ async def test_opt_in_tool_result_references_support_historical_readback(
     result = await agent.run("Compare the old and latest evidence.")
 
     full_old_output = f'File "old.txt":\n{old_content}'
-    assert tuple(spec.name for spec in model.requests[0].tool_specs)[-1] == (
-        "read_tool_result"
-    )
+    assert "read_tool_result" not in {
+        spec.name for spec in model.requests[0].tool_specs
+    }
+    assert "read_tool_result" not in {
+        spec.name for spec in model.requests[1].tool_specs
+    }
     assert model.requests[1].conversation[-1] == ToolResult(
         call_id="call_read_old",
         output=full_old_output,
@@ -347,6 +350,7 @@ async def test_opt_in_tool_result_references_support_historical_readback(
         "original_output_bytes": len(full_old_output.encode("utf-8")),
         "retrieval_tool": "read_tool_result",
     }
+    assert "read_tool_result" in {spec.name for spec in model.requests[2].tool_specs}
     assert model.requests[3].conversation[-1] == ToolResult(
         call_id="call_restore_old",
         output=full_old_output,

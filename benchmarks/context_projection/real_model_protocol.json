@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "protocol_id": "context-projection-real-model-pilot-v1",
-  "status": "preflight_completed_answer_capture_fixed_formal_not_run",
+  "status": "superseded_after_preflight_no_formal_runs",
   "model": {
     "provider": "dashscope_openai_compatible",
     "name": "qwen3.7-flash-2026-07-15",

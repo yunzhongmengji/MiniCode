@@ -11,7 +11,27 @@ from minicode.core.model import ModelRequest, ModelResponse
 from minicode.core.query_loop import QueryLoop
 from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.models.scripted import ScriptedModel
+from minicode.tools.read_tool_result import ReadToolResultArguments
 from minicode.tools.scripted import ScriptedToolRuntime
+from minicode.tools.spec import ToolSpec
+
+_READ_TOOL_RESULT_SPEC = ToolSpec(
+    name="read_tool_result",
+    description=(
+        "Read the exact original output of an earlier tool call in the current run. "
+        "This does not execute the earlier tool again."
+    ),
+    arguments_type=ReadToolResultArguments,
+)
+
+
+def _reference_projector(
+    *, max_inline_output_bytes: int
+) -> ToolResultReferenceProjector:
+    return ToolResultReferenceProjector(
+        max_inline_output_bytes=max_inline_output_bytes,
+        retrieval_tool_spec=_READ_TOOL_RESULT_SPEC,
+    )
 
 
 @pytest.mark.asyncio
@@ -55,9 +75,7 @@ async def test_reference_projector_compacts_only_eligible_large_result() -> None
         instructions=("Keep changes focused.",),
     )
 
-    projected = await ToolResultReferenceProjector(max_inline_output_bytes=100).project(
-        request
-    )
+    projected = await _reference_projector(max_inline_output_bytes=100).project(request)
 
     assert projected is not request
     assert projected.conversation[1] == ToolResult(
@@ -71,6 +89,7 @@ async def test_reference_projector_compacts_only_eligible_large_result() -> None
     )
     assert projected.conversation[-1] is latest_result
     assert projected.instructions == request.instructions
+    assert projected.tool_specs == (_READ_TOOL_RESULT_SPEC,)
     assert request.conversation[1] is older_result
 
 
@@ -84,9 +103,7 @@ async def test_reference_projector_keeps_eligible_small_result_inline() -> None:
         )
     )
 
-    projected = await ToolResultReferenceProjector(max_inline_output_bytes=5).project(
-        request
-    )
+    projected = await _reference_projector(max_inline_output_bytes=5).project(request)
 
     assert projected is request
     assert projected.conversation[0] is small_result
@@ -102,9 +119,7 @@ async def test_reference_projector_never_expands_a_short_result() -> None:
         )
     )
 
-    projected = await ToolResultReferenceProjector(max_inline_output_bytes=0).project(
-        request
-    )
+    projected = await _reference_projector(max_inline_output_bytes=0).project(request)
 
     assert projected is request
 
@@ -123,9 +138,7 @@ async def test_reference_projector_preserves_earlier_error_result() -> None:
         )
     )
 
-    projected = await ToolResultReferenceProjector(max_inline_output_bytes=0).project(
-        request
-    )
+    projected = await _reference_projector(max_inline_output_bytes=0).project(request)
 
     assert projected is request
     assert projected.conversation[0] is error_result
@@ -146,7 +159,27 @@ def test_reference_projector_validates_byte_limit(
     with pytest.raises(error_type, match=message):
         ToolResultReferenceProjector(
             max_inline_output_bytes=max_inline_output_bytes,  # type: ignore[arg-type]
+            retrieval_tool_spec=_READ_TOOL_RESULT_SPEC,
         )
+
+
+@pytest.mark.asyncio
+async def test_reference_projector_skips_projection_without_positive_net_savings() -> (
+    None
+):
+    result = ToolResult(call_id="call_old", output="x" * 300)
+    request = ModelRequest(
+        conversation=(
+            result,
+            Message(role=MessageRole.ASSISTANT, content="Continue."),
+        )
+    )
+
+    projected = await _reference_projector(max_inline_output_bytes=0).project(request)
+
+    assert projected is request
+    assert projected.conversation[0] is result
+    assert projected.tool_specs == ()
 
 
 @pytest.mark.asyncio

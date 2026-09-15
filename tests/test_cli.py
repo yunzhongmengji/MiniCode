@@ -429,7 +429,7 @@ async def test_execute_coding_task_applies_benchmark_projection_threshold(
         tool_spec.name for tool_spec in projected_model.requests[0].tool_specs
     }
     assert "read_tool_result" not in baseline_tool_names
-    assert projected_tool_names == baseline_tool_names | {"read_tool_result"}
+    assert projected_tool_names == baseline_tool_names
 
 
 @pytest.mark.asyncio

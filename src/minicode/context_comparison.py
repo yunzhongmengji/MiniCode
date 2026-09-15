@@ -41,6 +41,7 @@ class ContextRunMetrics:
     model_visible_bytes: int
     canonical_bytes: int
     projection_bytes_saved: int
+    tool_result_bytes_saved: int
     changed_tool_result_count: int
     successful_readback_count: int
     failed_readback_count: int
@@ -55,6 +56,7 @@ class ContextRunMetrics:
             "model_visible_bytes": self.model_visible_bytes,
             "canonical_bytes": self.canonical_bytes,
             "projection_bytes_saved": self.projection_bytes_saved,
+            "tool_result_bytes_saved": self.tool_result_bytes_saved,
             "changed_tool_result_count": self.changed_tool_result_count,
             "successful_readback_count": self.successful_readback_count,
             "failed_readback_count": self.failed_readback_count,
@@ -67,6 +69,8 @@ class ContextCostBreakdown:
     """Explain how projection savings and run-shape costs form net savings."""
 
     gross_projection_savings_bytes: int
+    conditional_tool_overhead_bytes: int
+    additional_run_shape_overhead_bytes: int
     run_shape_overhead_bytes: int
     net_model_visible_savings_bytes: int
 
@@ -82,6 +86,10 @@ class ContextCostBreakdown:
         """Return the cost equation as a JSON-compatible document."""
         return {
             "gross_projection_savings_bytes": self.gross_projection_savings_bytes,
+            "conditional_tool_overhead_bytes": self.conditional_tool_overhead_bytes,
+            "additional_run_shape_overhead_bytes": (
+                self.additional_run_shape_overhead_bytes
+            ),
             "run_shape_overhead_bytes": self.run_shape_overhead_bytes,
             "net_model_visible_savings_bytes": self.net_model_visible_savings_bytes,
             "equation_holds": self.equation_holds,
@@ -107,10 +115,19 @@ class ContextComparisonReport:
     @property
     def cost_breakdown(self) -> ContextCostBreakdown:
         """Return the gross-savings-minus-overhead cost equation."""
+        conditional_tool_overhead = (
+            self.projected.tool_result_bytes_saved
+            - self.projected.projection_bytes_saved
+        )
+        additional_run_shape_overhead = (
+            self.projected.canonical_bytes - self.baseline.model_visible_bytes
+        )
         return ContextCostBreakdown(
-            gross_projection_savings_bytes=self.projected.projection_bytes_saved,
+            gross_projection_savings_bytes=(self.projected.tool_result_bytes_saved),
+            conditional_tool_overhead_bytes=conditional_tool_overhead,
+            additional_run_shape_overhead_bytes=additional_run_shape_overhead,
             run_shape_overhead_bytes=(
-                self.projected.canonical_bytes - self.baseline.model_visible_bytes
+                conditional_tool_overhead + additional_run_shape_overhead
             ),
             net_model_visible_savings_bytes=self.model_visible_byte_difference,
         )
@@ -118,7 +135,7 @@ class ContextComparisonReport:
     def to_payload(self) -> dict[str, object]:
         """Return a JSON-compatible comparison report."""
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "measurement_unit": "canonical_json_utf8_bytes_not_model_tokens",
             "scenario": self.scenario,
             "baseline": self.baseline.to_payload(),
@@ -172,7 +189,7 @@ class ContextComparisonSuite:
     def to_payload(self) -> dict[str, object]:
         """Return both endpoints and their illustrative break-even estimate."""
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "measurement_unit": "canonical_json_utf8_bytes_not_model_tokens",
             "scenarios": {
                 "no_historical_readback": self.no_readback.to_payload(),
@@ -387,6 +404,7 @@ def summarize_context_events(
     model_visible_bytes = 0
     canonical_bytes = 0
     projection_bytes_saved = 0
+    tool_result_bytes_saved = 0
     changed_tool_result_count = 0
     readback_outcomes = {
         "succeeded": 0,
@@ -412,6 +430,10 @@ def summarize_context_events(
             model_visible_bytes += visible_bytes
             canonical_bytes += projected_before
             projection_bytes_saved += projected_saved
+            tool_result_bytes_saved += _required_integer(
+                projection,
+                "tool_result_bytes_saved",
+            )
             changed_tool_result_count += _required_integer(
                 projection,
                 "changed_tool_result_count",
@@ -435,6 +457,7 @@ def summarize_context_events(
         model_visible_bytes=model_visible_bytes,
         canonical_bytes=canonical_bytes,
         projection_bytes_saved=projection_bytes_saved,
+        tool_result_bytes_saved=tool_result_bytes_saved,
         changed_tool_result_count=changed_tool_result_count,
         successful_readback_count=readback_outcomes["succeeded"],
         failed_readback_count=readback_outcomes["failed"],

@@ -1,6 +1,6 @@
 # MiniCode 源码文件地图
 
-核对日期：2026-09-14。本文用于区分“数据结构与接口”“真正执行动作的组件”以及“测试替身”。
+核对日期：2026-09-15。本文用于区分“数据结构与接口”“真正执行动作的组件”以及“测试替身”。
 
 ## Core：运行协议和调度
 
@@ -10,8 +10,8 @@
 | `checkpoints.py` | 定义可恢复的 `RunCheckpoint`、合法性检查、pending 调用计算、Store 接口及内存实现 | 保存时机由 QueryLoop 决定；Checkpoint 是恢复状态，不是事件日志 |
 | `checkpoint_codec.py` | 在 `RunCheckpoint` 与带版本号的 JSON 文本之间转换 | 只编码/解码，不读写磁盘 |
 | `context_profile.py` | 把一次 `ModelRequest` 分为指令、消息、工具定义、工具调用、工具结果，并比较 canonical 与模型投影的 UTF-8 字节和变化结果数 | 是测量工具，不执行压缩；byte 不等于模型 Token，变化结果数在当前引用 Projector 下才等于引用数 |
-| `context_projection.py` | 定义“完整请求 → 本轮模型可见请求”的投影接口；可把较老、成功且超过阈值的 ToolResult 投影成含 call_id 的短 JSON 引用 | 默认仍使用 Identity Projector；短引用只改变模型视图，不修改完整历史或 Checkpoint |
-| `context_retrieval.py` | 按 `call_id` 返回原始 ToolResult；`RunToolResultSource` 固定一个 run_id，并从该 Run 的最新 Checkpoint 查找 | 尚未暴露给模型；Source 的 Run 由宿主组装代码决定，不由模型参数决定 |
+| `context_projection.py` | 定义“完整请求 → 本轮模型可见请求”的投影接口；先生成较老成功结果的候选引用，再要求工具结果毛节省严格覆盖回读 Tool Spec 开销 | 默认仍使用 Identity Projector；短引用和按需 Tool Spec 只改变模型视图，不修改完整历史或 Checkpoint |
+| `context_retrieval.py` | 按 `call_id` 返回原始 ToolResult；`RunToolResultSource` 固定一个 run_id，并从该 Run 的最新 Checkpoint 查找 | 只在显式投影配置下由回读 Tool 使用；Source 的 Run 由宿主组装代码决定，不由模型参数决定 |
 | `context_retention.py` | 把 ToolResult 分为 protected 和 eligible | 只分类候选，不修改请求；eligible 不等于一定安全删除 |
 | `conversation.py` | 定义 `ConversationItem` 类型别名：`Message | ToolCall | ToolResult` | 不是一个有状态的对话历史类 |
 | `events.py` | 定义事件种类、不可变事件、Ledger 接口和内存账本 | 其他组件调用它记录事实；它本身不恢复任务 |
@@ -97,7 +97,7 @@ ModelRequest.instructions
 | `list_files.py` | 有上限地列出 Workspace 内文件 | 具体 Tool |
 | `process.py` | 无 shell 启动受限子进程，处理环境白名单、stdout/stderr、超时、取消和输出上限 | 只被需要子进程的工具使用，目前主要是 `run_tests` 与 `git_diff`；不是所有 Tool 的执行器 |
 | `read_file.py` | 有 byte 上限地读取工作区文件 | 具体 Tool |
-| `read_tool_result.py` | 按 call_id 从当前 Run 的 Source 回读历史 ToolResult 原文，并限制 UTF-8 byte 数 | Tool 契约已实现但尚未注册；当前默认 Agent 看不到它 |
+| `read_tool_result.py` | 按 call_id 从当前 Run 的 Source 回读历史 ToolResult 原文，并限制 UTF-8 byte 数 | 显式投影配置下注册到 Dispatcher，但 Tool Spec 只在本轮真正产生引用时才向模型暴露；默认 Agent 看不到它 |
 | `registry.py` | 保存 Tool 对象并按名字查找，同时导出 ToolSpec 列表 | Registry 不主动注册到 Dispatcher；组装代码先填 Registry，再把它交给 Dispatcher |
 | `run_tests.py` | 构造受限 pytest 命令并交给 ProcessRunner | 具体 Tool，不直接实现通用 Shell |
 | `schema.py` | 定义所有工具参数模型的严格 Pydantic 基类：禁止多余字段、冻结、严格类型 | 定义参数校验约束，不定义完整 ToolCall |

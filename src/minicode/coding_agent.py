@@ -150,14 +150,15 @@ def build_coding_agent(
                 "tool-result references require a checkpoint_store for retrieval"
             )
 
-        context_projector = ToolResultReferenceProjector(
-            max_inline_output_bytes=max_inline_tool_result_bytes,
-        )
         historical_result_tool = ReadToolResultTool(
             RunToolResultSource(
                 checkpoint_store,
                 run_id=event_ledger.run_id,
             )
+        )
+        context_projector = ToolResultReferenceProjector(
+            max_inline_output_bytes=max_inline_tool_result_bytes,
+            retrieval_tool_spec=historical_result_tool.spec,
         )
 
     for tool in (
@@ -192,7 +193,9 @@ def build_coding_agent(
         max_turns=max_turns,
         tool_runtime=dispatcher,
         max_tool_calls=max_tool_calls,
-        tool_specs=registry.specs,
+        tool_specs=tuple(
+            spec for spec in registry.specs if spec.name != "read_tool_result"
+        ),
         total_timeout_seconds=total_timeout_seconds,
         event_ledger=event_ledger,
         checkpoint_store=checkpoint_store,

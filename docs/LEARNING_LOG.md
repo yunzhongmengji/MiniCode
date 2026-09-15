@@ -466,3 +466,27 @@
   函数再次负责展示提示。新测试断言 stdout 为空且 stderr 包含两次完整审批；原 CLI 测试断言
   stdout 只有最终模型回答、Run ID 与 Trace 在 stderr。原始 Preflight Answer 保留污染事实，
   不通过事后清洗伪造当时证据。
+
+## 2026-09-15 / Context Projection / 自适应净收益门槛
+
+- 问题来源：真实 Preflight 中，每轮约 500 bytes 的 `read_tool_result` Tool Spec 从第一轮起
+  重复发送，而两个实际投影轮次各只节省 411 bytes，导致工具结果缩短 822 bytes 的同时，
+  整次运行模型可见内容仍净增加 1664 bytes，Provider input Token 增加约 5.7%。
+- 新决策规则：Projector 先按原 retention 和单结果阈值生成候选引用，再用 Trace 相同的规范化
+  JSON 口径比较完整请求。只有 `工具结果毛节省 - 新增回读 Tool Spec bytes > 0` 才采用候选；
+  等于 0 也不投影，因为没有实际上下文收益。
+- 工具可见性与执行能力分离：`read_tool_result` 仍注册到 Dispatcher，保证引用出现后能够执行；
+  QueryLoop 的基础 Tool Specs 不再包含它。Projector 只有采用引用时才把该 Spec 加进本轮
+  ModelRequest，所以前置轮次和小结果任务不再无条件付费。
+- 状态边界不变：投影只改本轮 ModelRequest；完整 ToolResult 仍保留在 message history 与
+  Checkpoint。模型看到引用后仍按 call_id 从绑定当前 Run 的 Checkpoint 回读，恢复安全链路
+  没有被收益门槛绕过。
+- 新测量口径：`tool_result_bytes_saved` 是引用替换得到的毛节省；`projection_bytes_saved` 是
+  再扣除本轮条件式 Tool Spec 后，canonical request 到模型可见 request 的净节省。离线报告
+  schema 升至 2，并把条件式工具开销与额外运行形状开销分列，防止再次混淆局部和端到端收益。
+- 离线结果：不回读端点为 `4571 = 5071 - 500 - 0`；急切回读端点为
+  `-5945 = 10142 - 1000 - 15087`。前者比始终暴露工具时多省 1000 bytes，后者少亏
+  1000 bytes；但额外回读轮次依然可能压过局部收益。
+- 实验纪律：v1 Preflight 是始终携带回读 Tool Spec 的旧策略证据，原始结果不追溯修改。
+  自适应门槛来自观察 Preflight 后的改进，因此 v1 不再运行正式样本；后续真实验证必须新建
+  v2 协议和独立结果目录。

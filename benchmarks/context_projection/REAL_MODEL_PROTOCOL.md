@@ -1,6 +1,7 @@
 # Context Projection 真实模型小样本协议
 
-状态：真实模型 Preflight 已完成，发现的 Answer 捕获污染已修复；正式 12-run 实验尚未运行。
+状态：真实模型 Preflight 已完成，发现的 Answer 捕获污染已修复；本 v1 协议未运行正式样本，
+并因 Preflight 后引入自适应净收益门槛而停止使用。新策略必须另建协议，不能把新运行混入 v1。
 
 机器可读配置见 `real_model_protocol.json`。本协议先固定问题、样本、指标、预算和停止条件，
 再实现运行入口；不能根据跑出的结果事后更换有利口径。
@@ -29,6 +30,10 @@
 额外 Tool Spec 是完整策略的一部分，其 Token 成本必须计入 projection，不能从结果中扣除。
 两个 Arm 均使用 `qwen3.7-flash-2026-07-15`、`enable_thinking=false`；MiniCode 当前没有设置
 temperature，所以协议如实记录为 Provider 默认值，不能写成 temperature=0。
+
+上表冻结的是 v1 在 Preflight 时的行为：projection 从第一轮起始终携带回读 Tool Spec。
+Preflight 暴露固定开销后，运行时已改为只有候选工具结果的毛节省严格大于本轮回读 Tool Spec
+开销时才投影，并只在该请求加入工具定义。这属于观察数据后的策略修改，不能继续冒用 v1。
 
 每次运行必须使用从同一 Case 快照创建的新临时工作区、相同任务文本、相同 max turns/tool
 calls、相同 Policy 和 Approval 规则。每个 Case 的运行顺序交替为 `A B / B A / A B`，降低
@@ -89,9 +94,9 @@ Preflight 上限：2 runs、30000 input Token、5000 output Token。正式阶段
 2. 已完成：`evaluation_result` 保存协议 ID、Arm、阈值及投影/回读汇总，并校验声明与 Trace；
 3. 已完成：汇总器按协议、Case、Arm 和重复次数对齐结果，并检查质量、Token 与回读门禁。
 
-Arm 参数只存在于 Benchmark 入口，普通 `minicode run` 没有公开压缩选项。Scripted Model
-测试已经从最终 ModelRequest 验证 baseline 为七个工具、projection 额外包含
-`read_tool_result`，整个过程没有调用真实 Provider。
+Arm 参数只存在于 Benchmark 入口，普通 `minicode run` 没有公开压缩选项。v1 的 Scripted
+Model 测试曾从最终 ModelRequest 验证 baseline 为七个工具、projection 从首轮起额外包含
+`read_tool_result`；当前自适应实现已经取代该运行行为，但不追溯改写这段 v1 事实。
 
 每个 `MODEL_CALL_STARTED.context_projection` 现在同时保存 strategy 和配置阈值，因此即使某次
 运行没有实际压缩任何结果，也能区分“projection 已启用但没有命中”和“baseline 未启用”。
@@ -109,8 +114,8 @@ Preflight 与正式结果必须放在不同目录，汇总器只接收正式目�
 Provider input Token 或上下文指标自相矛盾的记录。正式样本次数不足、Safe Task Success 不足、
 Token 门禁不达标或回读失败时，报告的 `Advancement gate` 为 `FAIL`。
 
-至此可以进入一对 2-run Preflight，但它会产生真实 Provider 调用和费用，必须单独获得同意后
-才执行。Preflight 通过也不能进入正式统计，只用于验证端到端记录。
+本 v1 不再进入正式运行。自适应策略需先建立 v2 协议、补齐 Trace 配置事实，再决定是否执行
+新的付费 Preflight。
 
 ## 7. Preflight 结果
 

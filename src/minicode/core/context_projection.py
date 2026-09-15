@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
+from minicode.core.context_profile import profile_context_projection
 from minicode.core.context_retention import plan_tool_result_retention
 from minicode.core.conversation import ConversationItem
 from minicode.core.model import ModelRequest
 from minicode.core.tool_calls import ToolResult
+from minicode.tools.spec import ToolSpec
 
 
 class ContextProjectionStrategy(StrEnum):
@@ -53,7 +55,12 @@ class IdentityModelContextProjector:
 class ToolResultReferenceProjector:
     """Replace eligible oversized tool outputs with retrievable references."""
 
-    def __init__(self, *, max_inline_output_bytes: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_inline_output_bytes: int,
+        retrieval_tool_spec: ToolSpec,
+    ) -> None:
         if isinstance(max_inline_output_bytes, bool) or not isinstance(
             max_inline_output_bytes,
             int,
@@ -63,7 +70,14 @@ class ToolResultReferenceProjector:
         if max_inline_output_bytes < 0:
             raise ValueError("max_inline_output_bytes must not be negative")
 
+        if not isinstance(retrieval_tool_spec, ToolSpec):
+            raise TypeError("retrieval_tool_spec must be a ToolSpec")
+
+        if retrieval_tool_spec.name != "read_tool_result":
+            raise ValueError("retrieval_tool_spec must describe read_tool_result")
+
         self._max_inline_output_bytes = max_inline_output_bytes
+        self._retrieval_tool_spec = retrieval_tool_spec
 
     @property
     def max_inline_output_bytes(self) -> int:
@@ -71,7 +85,7 @@ class ToolResultReferenceProjector:
         return self._max_inline_output_bytes
 
     async def project(self, request: ModelRequest) -> ModelRequest:
-        """Return a model-only view with eligible large outputs referenced."""
+        """Reference results only when the complete request becomes smaller."""
         retention = plan_tool_result_retention(request.conversation)
         eligible_call_ids = frozenset(retention.eligible_call_ids)
         projected_conversation: list[ConversationItem] = []
@@ -112,11 +126,18 @@ class ToolResultReferenceProjector:
         if not changed:
             return request
 
-        return ModelRequest(
+        projected_request = ModelRequest(
             conversation=projected_conversation,
-            tool_specs=request.tool_specs,
+            tool_specs=(*request.tool_specs, self._retrieval_tool_spec),
             instructions=request.instructions,
         )
+
+        projection = profile_context_projection(request, projected_request)
+
+        if projection.total_bytes_saved <= 0:
+            return request
+
+        return projected_request
 
 
 def describe_context_projector(

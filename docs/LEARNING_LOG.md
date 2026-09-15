@@ -621,3 +621,12 @@
   次数由实验 Trace 单独观测。
 - 本步只完成 Case 和确定性反例，没有声称真实模型会通过。下一步用 baseline/projection 两个
   Scripted 路径验证：前者直接使用完整历史，后者通过引用回读后生成同一答案。
+
+## 2026-09-15 / Context Projection / 早期证据成对路径
+
+- baseline 和 projection 使用相同的初始 Workspace、修复动作和最终答案，两者均通过
+  `large_search_context_recall` 隐藏验收，且 `search_text` 都只成功执行一次。
+- baseline 的最后一轮模型请求仍直接包含 2730-byte 搜索原文；projection 的旧搜索
+  结果是短引用，但最新的 `read_tool_result` 结果恢复了与 baseline 完全相同的原文。
+- 测试同时检查作答前的最后 ModelRequest，避免只凭 ScriptedModel 预写答案宣称证据可用。
+  它证明两条信息传递路径的机械闭环，仍不证明真实模型会自主选择回读或正确理解证据。

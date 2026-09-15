@@ -211,3 +211,8 @@ bytes，成为历史结果后，扣除 501-byte 条件式回读 Tool Spec 仍使
 但最终答案必须报告早期搜索证据中的客户端数量、首项和末项；隐藏验收拒绝漏答、错误修复和
 第二次成功的文本搜索。它不强制具体回忆机制，避免把 projection 专属工具写进 baseline 验收。下一小步用
 两条 Scripted 路径分别验证 baseline 直接保留与 projection 引用回读。
+
+早期证据的成对 Scripted 路径已通过：baseline 作答前的请求保留 2730-byte 搜索原文，
+projection 作答前的请求则同时带有旧结果引用和一份通过 `read_tool_result` 恢复的相同原文。
+两组都只搜索一次并通过语义压力 Case。这仍是确定性信息路径证据，下一小步是基于新 Case 冻结
+新的真实模型实验协议和小额 Preflight 门禁，但暂不运行 Provider。

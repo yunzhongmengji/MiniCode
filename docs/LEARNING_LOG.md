@@ -578,3 +578,19 @@
   Spec 增加 501 bytes，完整 ModelRequest 净减少 2161 bytes，并且只改变这一条历史结果。
 - 本步只证明 Case 数据形状足以触发投影器，还没有证明 Scripted Agent 会按完整工具链完成
   Case，也没有修改真实实验协议或调用 Provider。下一步才做端到端 Scripted Model 闭环。
+
+## 2026-09-15 / Context Projection / 大搜索 Case 的 Scripted 闭环
+
+- `ScriptedModel` 固定执行 list → search → read → edit → test → final answer；其余全部使用产品
+  `CodingAgent`、`QueryLoop`、`ToolDispatcher`、真实文件工具、真实 pytest 进程、EventLedger
+  和 CheckpointStore，没有手工把 ToolResult 塞进 QueryLoop。
+- 六轮投影数量稳定为 `0, 0, 0, 1, 1, 1`。前三轮搜索结果尚未产生或仍是最新未见结果；第四轮
+  开始，新的 read/edit/test 结果位于历史尾部，旧搜索结果才转为 eligible。这验证了 retention
+  时机，而不只是引用文本格式。
+- 第四至第六轮每轮完整请求净省 2162 bytes，并只在这些轮次暴露 `read_tool_result`。上一步
+  手工请求测得 2161 bytes，是因为 Tool Spec 列表从空变为一项；产品请求是在已有七项后追加，
+  JSON 列表边界相差 1 byte。测量对象不同，不能把这 1 byte 当成算法不稳定。
+- 投影只影响 ScriptedModel 收到的请求。最终 RunResult 和完成态 Checkpoint 中仍保存 2730-byte
+  搜索原文；修改后的工作区通过真实测试和隐藏验收，证明压缩视图没有破坏权威执行状态。
+- 本步仍未调用 Provider，也没有预注册新协议。下一步应冻结新的真实实验协议和 Preflight
+  预算；协议一旦提交，才能开始新的付费运行。

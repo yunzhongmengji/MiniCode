@@ -1,17 +1,29 @@
+import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
+from minicode.coding_agent import build_coding_agent
 from minicode.core.checkpoints import InMemoryCheckpointStore
 from minicode.core.context_profile import profile_context_projection
 from minicode.core.context_projection import ToolResultReferenceProjector
 from minicode.core.context_retrieval import RunToolResultSource
+from minicode.core.events import EventKind, InMemoryEventLedger
 from minicode.core.messages import Message, MessageRole
-from minicode.core.model import ModelRequest
+from minicode.core.model import ModelRequest, ModelResponse
+from minicode.core.query_loop import StopReason
 from minicode.core.tool_calls import ToolCall, ToolResult
+from minicode.core.tool_policy import (
+    ConfiguredToolPolicy,
+    PolicyDecision,
+    PolicyOutcome,
+)
+from minicode.models.scripted import ScriptedModel
+from minicode.tools.process import AsyncioProcessRunner
 from minicode.tools.read_tool_result import ReadToolResultTool
 from minicode.tools.search_text import SearchTextArguments, SearchTextTool
 from minicode.workspace import Workspace
@@ -157,3 +169,184 @@ async def test_large_search_result_has_positive_projection_net_savings() -> None
     assert profile.changed_tool_result_count == 1
     assert profile.total_bytes_saved > 0
     assert tuple(spec.name for spec in projected.tool_specs) == ("read_tool_result",)
+
+
+@pytest.mark.asyncio
+async def test_scripted_agent_repairs_case_through_projected_context(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    shutil.copytree(_CASE_ROOT / "workspace", workspace_root)
+    _initialize_repository(workspace_root)
+    list_call = ToolCall(
+        call_id="call_list",
+        name="list_files",
+        arguments={"path": "."},
+    )
+    search_call = ToolCall(
+        call_id="call_search",
+        name="search_text",
+        arguments={
+            "query": "DEFAULT_REQUEST_TIMEOUT_SECONDS",
+            "path": ".",
+        },
+    )
+    read_call = ToolCall(
+        call_id="call_read",
+        name="read_file",
+        arguments={"path": "service_config/timeouts.py"},
+    )
+    edit_call = ToolCall(
+        call_id="call_edit",
+        name="edit_file",
+        arguments={
+            "path": "service_config/timeouts.py",
+            "old_text": "DEFAULT_REQUEST_TIMEOUT_SECONDS = 3",
+            "new_text": "DEFAULT_REQUEST_TIMEOUT_SECONDS = 30",
+        },
+    )
+    test_call = ToolCall(
+        call_id="call_test",
+        name="run_tests",
+        arguments={"path": "tests/test_timeouts.py"},
+    )
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(
+                content="I will inspect the project.", tool_calls=(list_call,)
+            ),
+            ModelResponse(
+                content="I will find the shared definition and callers.",
+                tool_calls=(search_call,),
+            ),
+            ModelResponse(
+                content="I will read the canonical definition.",
+                tool_calls=(read_call,),
+            ),
+            ModelResponse(
+                content="I found the incorrect shared default.",
+                tool_calls=(edit_call,),
+            ),
+            ModelResponse(
+                content="I will verify the shared fix.",
+                tool_calls=(test_call,),
+            ),
+            ModelResponse(content="Fixed and verified the shared timeout default."),
+        )
+    )
+    event_ledger = InMemoryEventLedger(run_id="run_large_context")
+    checkpoint_store = InMemoryCheckpointStore()
+    allow = PolicyDecision(
+        outcome=PolicyOutcome.ALLOW,
+        reason="allowed by deterministic context evaluation",
+    )
+    agent = build_coding_agent(
+        model=model,
+        workspace=Workspace(workspace_root),
+        process_runner=AsyncioProcessRunner(),
+        policy=ConfiguredToolPolicy(
+            decisions={
+                "list_files": allow,
+                "search_text": allow,
+                "read_file": allow,
+                "edit_file": allow,
+                "run_tests": allow,
+            }
+        ),
+        event_ledger=event_ledger,
+        checkpoint_store=checkpoint_store,
+        max_turns=6,
+        max_tool_calls=5,
+        max_inline_tool_result_bytes=500,
+    )
+
+    result = await agent.run((_CASE_ROOT / "task.txt").read_text(encoding="utf-8"))
+
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.response.content == "Fixed and verified the shared timeout default."
+    assert (
+        (workspace_root / "service_config" / "timeouts.py")
+        .read_text(encoding="utf-8")
+        .endswith("DEFAULT_REQUEST_TIMEOUT_SECONDS = 30\n")
+    )
+    assert len(model.requests) == 6
+    full_search_result = next(
+        item
+        for item in model.requests[2].conversation
+        if isinstance(item, ToolResult) and item.call_id == "call_search"
+    )
+    projected_search_result = next(
+        item
+        for item in model.requests[3].conversation
+        if isinstance(item, ToolResult) and item.call_id == "call_search"
+    )
+    latest_read_result = model.requests[3].conversation[-1]
+
+    assert len(full_search_result.output.encode("utf-8")) == 2_730
+    assert json.loads(projected_search_result.output) == {
+        "call_id": "call_search",
+        "kind": "historical_tool_result_reference",
+        "original_output_bytes": 2_730,
+        "retrieval_tool": "read_tool_result",
+    }
+    assert isinstance(latest_read_result, ToolResult)
+    assert latest_read_result.call_id == "call_read"
+    assert not latest_read_result.output.startswith("{")
+    assert "read_tool_result" not in {
+        spec.name for spec in model.requests[2].tool_specs
+    }
+    assert "read_tool_result" in {spec.name for spec in model.requests[3].tool_specs}
+    canonical_search_result = next(
+        item
+        for item in result.message_history
+        if isinstance(item, ToolResult) and item.call_id == "call_search"
+    )
+    assert canonical_search_result == full_search_result
+    checkpoint = checkpoint_store.latest("run_large_context")
+    assert checkpoint is not None
+    assert checkpoint.message_history == result.message_history
+    assert checkpoint.is_completed is True
+    model_starts = tuple(
+        event
+        for event in event_ledger.events
+        if event.kind is EventKind.MODEL_CALL_STARTED
+    )
+    projections = tuple(event.payload["context_projection"] for event in model_starts)
+    projection_mappings = tuple(
+        projection for projection in projections if isinstance(projection, Mapping)
+    )
+
+    assert len(projection_mappings) == len(projections)
+    assert tuple(
+        projection["changed_tool_result_count"] for projection in projection_mappings
+    ) == (0, 0, 0, 1, 1, 1)
+    assert tuple(
+        projection["total_bytes_saved"] for projection in projection_mappings
+    ) == (0, 0, 0, 2_162, 2_162, 2_162)
+
+    trace_path = tmp_path / "trace.txt"
+    answer_path = tmp_path / "answer.txt"
+    answer_path.write_text(result.response.content, encoding="utf-8")
+    successful_tool_lines = [
+        (
+            f"{event.sequence:03d} tool_execution_finished "
+            + json.dumps(
+                {
+                    "outcome": event.payload["outcome"],
+                    "tool_name": event.payload["tool_name"],
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        for event in event_ledger.events
+        if event.kind is EventKind.TOOL_EXECUTION_FINISHED
+    ]
+    trace_path.write_text(
+        "Trace run_large_context\n" + "\n".join(successful_tool_lines) + "\n",
+        encoding="utf-8",
+    )
+    acceptance = _run_acceptance(workspace_root, answer_path, trace_path)
+
+    assert acceptance.returncode == 0, acceptance.stderr
+    assert acceptance.stdout.strip() == "PASS large_search_context_repair"

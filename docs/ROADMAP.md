@@ -196,3 +196,8 @@ v2 真实 Preflight 已完成并按协议停止：baseline 任务失败，projec
 bytes，成为历史结果后，扣除 501-byte 条件式回读 Tool Spec 仍使完整请求净减 2161 bytes；
 隐藏验收也拒绝原 bug、接受仅修改共享超时定义的修复。本步尚未运行完整 Scripted Agent，
 下一小步用固定工具调用序列证明 Case 能端到端触发投影、完成修改和通过验收。
+
+端到端 Scripted 闭环现已完成：产品 CodingAgent 依次执行 list/search/read/edit/test，真实测试和
+隐藏验收通过；六轮模型请求的投影数为 `0,0,0,1,1,1`，后三轮各净省 2162 bytes，且完整搜索
+原文仍留在 RunResult 与完成态 Checkpoint。下一小步预注册新的真实实验协议与小额 Preflight
+预算，本步不调用 Provider。

@@ -78,7 +78,7 @@ model_name="${DASHSCOPE_MODEL:-qwen3.7-flash-2026-07-15}"
 记录器：
 
 ```bash
---context-protocol-id context-projection-real-model-pilot-v1 \
+--context-protocol-id context-projection-adaptive-real-model-pilot-v2 \
 --context-arm projection
 ```
 
@@ -125,7 +125,7 @@ PASS <case_name>: /tmp/.../result.json
 ```bash
 .venv/bin/python -m minicode.evaluation_summary \
   benchmarks/context_projection/results/formal \
-  --context-protocol benchmarks/context_projection/real_model_protocol.json
+  --context-protocol benchmarks/context_projection/real_model_protocol_v2.json
 ```
 
 不要把 `preflight/` 放到 `formal/` 下面。该汇总会检查每个 Case/Arm 的重复次数、不同 Run ID、

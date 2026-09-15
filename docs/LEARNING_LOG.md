@@ -504,3 +504,17 @@
   `MODEL_CALL_STARTED.context_projection`。本步扩展的是静态配置载荷和实验验证契约。
 - 为什么重要：只看 `total_bytes_saved` 无法判断“没命中”“净收益不足而主动放弃”还是
   “根本没启用”。面试时应能区分配置事实、执行事实和最终效果，三者不能相互代替。
+
+## 2026-09-15 / Context Projection / v2 实验预注册
+
+- 为什么不能沿用 v1：自适应门槛是看过 v1 Preflight 后才设计的。如果把新实现产生的结果
+  放进 v1，就等于实验中途换治疗方案，A/B 结论不可解释。
+- v2 协议 schema 2 同时冻结 strategy、500-byte 候选阈值、1-byte 完整请求净收益门槛和
+  `on_reference` 工具加载方式。汇总器不仅比较协议 ID 和阈值，还比较结果里的完整配置。
+- Preflight Case 不能只看“任务够长”。已知 `multi_file_inventory_contract` 的单次毛节省约
+  411 bytes，小于约 500-byte Tool Spec，新策略会合理地不投影。因此 v2 先选择历史工具结果
+  更多的 `search_driven_retry_schedule`，并要求至少出现一次真实投影。
+- “没有命中”并不说明算法错误，但说明这次 Preflight 没覆盖核心路径。工程验收需要任务成功
+  和路径覆盖两个条件；前者回答质量，后者回答我们是否真的测试了新功能。
+- 本步只预注册规则并扩展离线协议校验，没有调用 Provider。下一步是只读 Preflight 就绪审计，
+  不是直接开始 12 次正式实验。

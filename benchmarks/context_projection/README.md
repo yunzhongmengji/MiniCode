@@ -72,3 +72,7 @@ schema 2、`minimum_net_savings_bytes=1` 和 `retrieval_tool_loading=on_referenc
 `results/preflight-007d4b9-qwen3.7-flash-2026-07-15/`；它不进入正式统计。Preflight 发现审批
 提示混入 `answer.txt`；stdout/stderr 分流及回归测试随后已修复，原始 Preflight 工件保留不改。
 由于本页策略是根据该 Preflight 新增的自适应版本，v1 已停止，后续真实运行必须使用新协议。
+
+自适应策略的预注册协议见 `REAL_MODEL_PROTOCOL_V2.md` 和
+`real_model_protocol_v2.json`。v2 尚未运行真实模型；首先只允许一对独立 Preflight，并要求
+projection 至少实际命中一次，否则不能证明新路径得到端到端覆盖。

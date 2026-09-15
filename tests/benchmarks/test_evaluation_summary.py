@@ -76,27 +76,54 @@ def _write_result(
     )
 
 
-def _write_context_protocol(path: Path, *, repetitions: int = 2) -> None:
-    path.write_text(
-        json.dumps(
+def _write_context_protocol(
+    path: Path,
+    *,
+    repetitions: int = 2,
+    schema_version: int = 1,
+) -> None:
+    baseline: dict[str, object] = {"max_inline_tool_result_bytes": None}
+    projection: dict[str, object] = {"max_inline_tool_result_bytes": 500}
+
+    if schema_version == 2:
+        baseline.update(
             {
-                "schema_version": 1,
-                "protocol_id": "context-protocol-v1",
-                "model": {"name": "test-model"},
-                "cases": ["case_a"],
-                "arms": {
-                    "baseline": {"max_inline_tool_result_bytes": None},
-                    "projection": {"max_inline_tool_result_bytes": 500},
-                },
-                "repetitions_per_case_per_arm": repetitions,
-                "advancement_gates": {
-                    "required_safe_task_successes_per_arm": repetitions,
-                    "minimum_aggregate_input_token_reduction_percent": 5,
-                    "maximum_per_case_input_token_regression_percent": 5,
-                    "maximum_failed_or_cancelled_readbacks": 0,
-                },
+                "strategy": "identity",
+                "minimum_net_savings_bytes": None,
+                "retrieval_tool_loading": None,
             }
-        ),
+        )
+        projection.update(
+            {
+                "strategy": "tool_result_reference",
+                "minimum_net_savings_bytes": 1,
+                "retrieval_tool_loading": "on_reference",
+            }
+        )
+
+    payload: dict[str, object] = {
+        "schema_version": schema_version,
+        "protocol_id": f"context-protocol-v{schema_version}",
+        "model": {"name": "test-model"},
+        "cases": ["case_a"],
+        "arms": {
+            "baseline": baseline,
+            "projection": projection,
+        },
+        "repetitions_per_case_per_arm": repetitions,
+        "advancement_gates": {
+            "required_safe_task_successes_per_arm": repetitions,
+            "minimum_aggregate_input_token_reduction_percent": 5,
+            "maximum_per_case_input_token_regression_percent": 5,
+            "maximum_failed_or_cancelled_readbacks": 0,
+        },
+    }
+
+    if schema_version == 2:
+        payload["context_projection_configuration_schema_version"] = 2
+
+    path.write_text(
+        json.dumps(payload),
         encoding="utf-8",
     )
 
@@ -312,6 +339,102 @@ def test_context_summary_passes_complete_quality_and_token_gates(
     assert "- Aggregate input Token reduction: 15.0% (pass)" in summary
     assert "- Failed or cancelled readbacks: 0 (pass)" in summary
     assert "- Advancement gate: PASS" in summary
+
+
+def test_context_summary_accepts_v2_adaptive_configuration(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+
+    for arm, tokens in (("baseline", 100), ("projection", 90)):
+        _write_result(
+            results_root,
+            case_id="case_a",
+            accepted=True,
+            model_calls=1,
+            tool_executions=1,
+            input_tokens=tokens,
+            output_tokens=10,
+            workspace_changes=[],
+            schema_version=2,
+            verdict={
+                "outcome_passed": True,
+                "operational_passed": True,
+                "budget_passed": True,
+                "trace_passed": True,
+                "passed": True,
+            },
+            directory_name=f"case_a-{arm}",
+            run_id=f"run_{arm}",
+            context_experiment=_context_experiment(
+                arm,
+                protocol_id="context-protocol-v2",
+            ),
+        )
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "- Protocol: context-protocol-v2" in summary
+    assert "- Advancement gate: PASS" in summary
+
+
+def test_context_summary_rejects_v2_result_with_another_loading_mode(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+    context_experiment = _context_experiment(
+        "projection",
+        protocol_id="context-protocol-v2",
+    )
+    trace_configuration = context_experiment["trace_configuration"]
+    assert isinstance(trace_configuration, dict)
+    trace_configuration["retrieval_tool_loading"] = "eager"
+    _write_result(
+        results_root,
+        case_id="case_a",
+        accepted=True,
+        model_calls=1,
+        tool_executions=1,
+        input_tokens=90,
+        output_tokens=10,
+        workspace_changes=[],
+        schema_version=2,
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": True,
+            "budget_passed": True,
+            "trace_passed": True,
+            "passed": True,
+        },
+        run_id="run_projection",
+        context_experiment=context_experiment,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="context trace retrieval-tool loading disagrees",
+    ):
+        summarize_context_experiment_results(results_root, protocol_path)
+
+
+def test_context_summary_rejects_incomplete_v2_protocol(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+    protocol = json.loads(protocol_path.read_text(encoding="utf-8"))
+    del protocol["arms"]["projection"]["minimum_net_savings_bytes"]
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="context protocol arm configuration is missing minimum_net_savings_bytes",
+    ):
+        summarize_context_experiment_results(results_root, protocol_path)
 
 
 def test_context_summary_fails_incomplete_repetitions_and_readback_gate(

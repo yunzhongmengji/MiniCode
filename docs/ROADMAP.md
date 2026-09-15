@@ -170,3 +170,9 @@ Run ID 不可比的数据。当前仍未调用真实 Provider；下一阶段是�
 暴露 `read_tool_result`。Trace 配置 schema 2 已记录并验证 `minimum_net_savings_bytes=1`
 与 `retrieval_tool_loading=on_reference`；旧 v1 结果保持可读，但不能冒充新策略证据。下一小步
 是预注册 v2 真实模型协议，不在本步调用 Provider。
+
+v2 协议现已预注册为 `context-projection-adaptive-real-model-pilot-v2`：协议 schema 2 冻结
+Identity 与自适应引用两组的完整 Trace 配置，并要求汇总结果与协议中的净收益门槛、工具加载
+方式一致。Preflight 固定先跑 `search_driven_retry_schedule` 一对，除了两组任务成功，还必须
+至少出现一次真实投影；没有命中就停在覆盖不足，不能进入正式 12-run 阶段。当前尚未调用
+Provider，下一小步是只读的 Preflight 就绪审计。

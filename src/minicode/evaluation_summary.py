@@ -16,6 +16,10 @@ class _RecordedContextExperiment:
     protocol_id: str
     arm: str
     max_inline_tool_result_bytes: int | None
+    trace_configuration_schema_version: int | None
+    strategy: str
+    minimum_net_savings_bytes: int | None
+    retrieval_tool_loading: str | None
     model_call_count: int
     model_visible_bytes: int
     canonical_bytes: int
@@ -55,6 +59,13 @@ class _ContextProtocol:
     cases: tuple[str, ...]
     baseline_threshold: int | None
     projection_threshold: int | None
+    context_projection_configuration_schema_version: int | None
+    baseline_strategy: str | None
+    projection_strategy: str | None
+    baseline_minimum_net_savings_bytes: int | None
+    projection_minimum_net_savings_bytes: int | None
+    baseline_retrieval_tool_loading: str | None
+    projection_retrieval_tool_loading: str | None
     repetitions_per_case_per_arm: int
     required_safe_task_successes_per_arm: int
     minimum_aggregate_input_token_reduction_percent: int
@@ -161,6 +172,34 @@ def summarize_context_experiment_results(
 
         if experiment.max_inline_tool_result_bytes != expected_threshold:
             raise ValueError("result context threshold does not match protocol file")
+
+        if protocol.context_projection_configuration_schema_version is not None:
+            expected_strategy = (
+                protocol.baseline_strategy
+                if experiment.arm == "baseline"
+                else protocol.projection_strategy
+            )
+            expected_minimum_net_savings = (
+                protocol.baseline_minimum_net_savings_bytes
+                if experiment.arm == "baseline"
+                else protocol.projection_minimum_net_savings_bytes
+            )
+            expected_retrieval_tool_loading = (
+                protocol.baseline_retrieval_tool_loading
+                if experiment.arm == "baseline"
+                else protocol.projection_retrieval_tool_loading
+            )
+
+            if (
+                experiment.trace_configuration_schema_version
+                != protocol.context_projection_configuration_schema_version
+                or experiment.strategy != expected_strategy
+                or experiment.minimum_net_savings_bytes != expected_minimum_net_savings
+                or experiment.retrieval_tool_loading != expected_retrieval_tool_loading
+            ):
+                raise ValueError(
+                    "result context configuration does not match protocol file"
+                )
 
         if result.model != protocol.model_name:
             raise ValueError("result model does not match context protocol")
@@ -476,6 +515,9 @@ def _load_recorded_context_experiment(
     configuration_schema_version = trace_configuration.get(
         "configuration_schema_version"
     )
+    recorded_configuration_schema_version: int | None = None
+    recorded_minimum_net_savings: int | None = None
+    recorded_retrieval_tool_loading: str | None = None
 
     if _required_string(trace_configuration, "strategy", path) != expected_strategy:
         raise ValueError(f"context trace strategy disagrees with arm: {path}")
@@ -508,11 +550,19 @@ def _load_recorded_context_experiment(
         ):
             raise ValueError(f"context trace retrieval-tool loading disagrees: {path}")
 
+        recorded_configuration_schema_version = 2
+        recorded_minimum_net_savings = expected_minimum_net_savings
+        recorded_retrieval_tool_loading = expected_retrieval_tool_loading
+
     metrics = _required_mapping(experiment, "metrics", path)
     record = _RecordedContextExperiment(
         protocol_id=_required_string(experiment, "protocol_id", path),
         arm=arm,
         max_inline_tool_result_bytes=threshold,
+        trace_configuration_schema_version=recorded_configuration_schema_version,
+        strategy=expected_strategy,
+        minimum_net_savings_bytes=recorded_minimum_net_savings,
+        retrieval_tool_loading=recorded_retrieval_tool_loading,
         model_call_count=_required_positive_integer(metrics, "model_call_count", path),
         model_visible_bytes=_required_non_negative_integer(
             metrics, "model_visible_bytes", path
@@ -562,7 +612,9 @@ def _load_context_protocol(path: Path) -> _ContextProtocol:
         raise TypeError(f"context protocol must be an object: {path}")
 
     protocol = cast(Mapping[str, object], decoded)
-    if _required_integer(protocol, "schema_version", path) != 1:
+    schema_version = _required_integer(protocol, "schema_version", path)
+
+    if schema_version not in (1, 2):
         raise ValueError(f"unsupported context protocol schema: {path}")
 
     model = _required_mapping(protocol, "model", path)
@@ -598,6 +650,69 @@ def _load_context_protocol(path: Path) -> _ContextProtocol:
     if projection_threshold < 0:
         raise ValueError(f"projection context threshold cannot be negative: {path}")
 
+    configuration_schema_version: int | None = None
+    baseline_strategy: str | None = None
+    projection_strategy: str | None = None
+    baseline_minimum_net_savings: int | None = None
+    projection_minimum_net_savings: int | None = None
+    baseline_retrieval_tool_loading: str | None = None
+    projection_retrieval_tool_loading: str | None = None
+
+    if schema_version == 2:
+        configuration_schema_version = _required_integer(
+            protocol,
+            "context_projection_configuration_schema_version",
+            path,
+        )
+
+        if configuration_schema_version != 2:
+            raise ValueError(
+                f"unsupported context projection configuration schema: {path}"
+            )
+
+        baseline_strategy = _required_string(baseline, "strategy", path)
+        projection_strategy = _required_string(projection, "strategy", path)
+
+        if baseline_strategy != "identity":
+            raise ValueError(f"baseline context strategy must be identity: {path}")
+
+        if projection_strategy != "tool_result_reference":
+            raise ValueError(
+                f"projection context strategy must use tool-result references: {path}"
+            )
+
+        for arm in (baseline, projection):
+            for field in (
+                "minimum_net_savings_bytes",
+                "retrieval_tool_loading",
+            ):
+                if field not in arm:
+                    raise ValueError(
+                        f"context protocol arm configuration is missing {field}: {path}"
+                    )
+
+        baseline_minimum_value = baseline.get("minimum_net_savings_bytes")
+        projection_minimum_value = projection.get("minimum_net_savings_bytes")
+        baseline_loading_value = baseline.get("retrieval_tool_loading")
+        projection_loading_value = projection.get("retrieval_tool_loading")
+
+        if baseline_minimum_value is not None:
+            raise ValueError(f"baseline net-savings gate must be null: {path}")
+
+        if projection_minimum_value != 1:
+            raise ValueError(f"projection net-savings gate must be 1: {path}")
+
+        if baseline_loading_value is not None:
+            raise ValueError(f"baseline retrieval-tool loading must be null: {path}")
+
+        if projection_loading_value != "on_reference":
+            raise ValueError(
+                f"projection retrieval tool must load on reference: {path}"
+            )
+
+        projection_minimum_net_savings = 1
+        projection_retrieval_tool_loading = "on_reference"
+
     repetitions = _required_positive_integer(
         protocol,
         "repetitions_per_case_per_arm",
@@ -621,6 +736,13 @@ def _load_context_protocol(path: Path) -> _ContextProtocol:
         cases=tuple(cases),
         baseline_threshold=None,
         projection_threshold=projection_threshold,
+        context_projection_configuration_schema_version=(configuration_schema_version),
+        baseline_strategy=baseline_strategy,
+        projection_strategy=projection_strategy,
+        baseline_minimum_net_savings_bytes=baseline_minimum_net_savings,
+        projection_minimum_net_savings_bytes=projection_minimum_net_savings,
+        baseline_retrieval_tool_loading=baseline_retrieval_tool_loading,
+        projection_retrieval_tool_loading=projection_retrieval_tool_loading,
         repetitions_per_case_per_arm=repetitions,
         required_safe_task_successes_per_arm=required_safe_successes,
         minimum_aggregate_input_token_reduction_percent=(

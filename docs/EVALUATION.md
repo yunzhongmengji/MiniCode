@@ -187,7 +187,7 @@ Context Projection 的正式 A/B 批次使用额外的预注册协议参数：
 
 ```bash
 python -m minicode.evaluation_summary <formal-results-root> \
-  --context-protocol benchmarks/context_projection/real_model_protocol.json
+  --context-protocol benchmarks/context_projection/real_model_protocol_v2.json
 ```
 
 该模式不是把所有运行简单相加，而是先按 `Case × Arm` 分组，要求每组拥有协议规定数量的

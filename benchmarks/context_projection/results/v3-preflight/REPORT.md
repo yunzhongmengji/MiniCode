@@ -89,6 +89,9 @@ projection 的投影机制确实运行了：累计 11 个历史 ToolResult 被�
 下一小步只做离线失败分析：逐轮比较两条 Trace，定位 projection 为什么增加 `read_file`/
 `git_diff` 以及为什么没有在测试成功后结束。分析完成前不修改算法，也不调用 Provider。
 
+该离线分析已完成，详见 `TRACE_DIAGNOSIS.md`。它确认了“注册表回读后又被后续 `git_diff` 挤出
+最新结果批次”的机械链路，同时保留了单样本不能证明因果关系的边界。
+
 ## 6. 原始证据
 
 每个 Arm 都保存：

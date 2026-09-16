@@ -226,3 +226,9 @@ Token；正式计划使用 repair/recall 两个配对 Case 共 12 runs。当前�
 v3 只读就绪审计已通过：本地协议/模型配置、凭据变量存在性、Case 指纹与 Git 跟踪、Arm 传递、专项测试和结果隔离
 都符合协议。审计同时修正运行文档：原始 stderr 必须保留，规范 Trace 要单独提取。未调用 Provider，
 也未创建 v3 结果目录。下一阶段是两次付费真实 Preflight，需要用户明确同意后才执行。
+
+v3 真实 Preflight 已按授权完成并在门禁失败后停止：baseline 成功；projection 命中 11 次投影并完成
+代码修改和测试，但在最终作答前达到 `max_turns`，Safe Task Success 失败。两条合计使用 36,131 input
+与 650 output tokens，没有超过 Preflight 总预算。按照预注册纪律不补跑、不进入正式 12-run。下一阶段
+只做离线逐轮 Trace 诊断，区分压缩机制、工具选择和终止行为；若据此改变预算、Case、提示或策略，
+必须注册新协议 ID 后才能再次调用真实 Provider。

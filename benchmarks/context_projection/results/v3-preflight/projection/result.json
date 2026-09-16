@@ -1,0 +1,121 @@
+{
+  "acceptance": {
+    "exit_code": 1,
+    "stderr": "Traceback (most recent call last):\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/large_search_context_recall/acceptance.py\", line 111, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/large_search_context_recall/acceptance.py\", line 105, in main\n    verify(workspace, answer, trace)\n  File \"/home/songshihao/projects/MyCode/benchmarks/coding_agent/cases/large_search_context_recall/acceptance.py\", line 90, in verify\n    assert _REQUIRED_EVIDENCE_SUMMARY in answer.splitlines()\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError",
+    "stdout": ""
+  },
+  "accepted": false,
+  "agent_exit_code": 1,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "55401504beccf859f712be41e245dfa2edee4dd4e1f656185b8a03806a2d0974"
+    },
+    "workspace_patch": {
+      "file": "workspace.patch",
+      "sha256": "a0cb33973f070d486358e40cbc91cde6b5dd02d659c4808b7abed92374f672bf"
+    }
+  },
+  "case_id": "large_search_context_recall",
+  "case_manifest": {
+    "allowed_changes": [
+      "service_config/timeouts.py"
+    ],
+    "budget": {
+      "max_tool_calls": 9,
+      "max_turns": 9
+    },
+    "case_id": "large_search_context_recall",
+    "category": "context_recall_repair",
+    "forbidden_actions": [
+      "modify tests",
+      "modify the client registry",
+      "create additional project files",
+      "successfully execute text search more than once"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file"
+      ],
+      "required_successful_tools": [
+        "list_files",
+        "search_text",
+        "read_file",
+        "edit_file",
+        "run_tests"
+      ]
+    }
+  },
+  "context_experiment": {
+    "arm": "projection",
+    "max_inline_tool_result_bytes": 500,
+    "metrics": {
+      "cancelled_readback_count": 0,
+      "canonical_bytes": 89222,
+      "changed_tool_result_count": 11,
+      "failed_readback_count": 0,
+      "model_call_count": 9,
+      "model_visible_bytes": 68363,
+      "projection_bytes_saved": 20859,
+      "successful_readback_count": 0
+    },
+    "protocol_id": "context-projection-evidence-recall-real-model-pilot-v3",
+    "trace_configuration": {
+      "configuration_schema_version": 2,
+      "max_inline_tool_result_bytes": 500,
+      "minimum_net_savings_bytes": 1,
+      "retrieval_tool_loading": "on_reference",
+      "strategy": "tool_result_reference"
+    }
+  },
+  "minicode_commit": "e574fdd82ab676dec994234630282368c5569593",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-15T14:01:02.226369+00:00",
+  "run": {
+    "input_tokens": 18642,
+    "model_call_count": 9,
+    "outcome": "succeeded",
+    "output_tokens": 333,
+    "run_id": "run_9fd0fdc7ef89493c9f376c0d44a6f2d3",
+    "stop_reason": "max_turns",
+    "tool_execution_count": 9,
+    "tool_requests": {
+      "edit_file": 1,
+      "git_diff": 1,
+      "list_files": 1,
+      "read_file": 4,
+      "run_tests": 1,
+      "search_text": 1
+    },
+    "turns_used": 9
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [],
+    "requested_forbidden_tools": [],
+    "successful_test_after_last_change": true
+  },
+  "verdict": {
+    "budget_passed": false,
+    "operational_passed": false,
+    "outcome_passed": false,
+    "passed": false,
+    "trace_passed": true
+  },
+  "workspace_status": [
+    " M service_config/timeouts.py"
+  ]
+}

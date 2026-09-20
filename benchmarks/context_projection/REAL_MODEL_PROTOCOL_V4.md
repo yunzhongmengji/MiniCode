@@ -1,6 +1,6 @@
 # Context Editing v4 预注册协议
 
-状态：**完整批次链路与编排证据门禁均已离线接线；尚未调用真实模型。**
+状态：**真实 Preflight 已通过；正式 12-run 的批次链路与证据门禁已离线完成，正式样本尚未运行。**
 
 机器可读协议是 `real_model_protocol_v4.json`。它的作用不是启动 Agent，而是在看到实验结果之前，先把
 “用什么模型、跑哪些 Case、两组分别使用什么策略、最多花多少 Token、怎样才算通过”锁死。后续运行器只能
@@ -63,3 +63,15 @@ Agent 入口、提取 Trace，再调用已有结果记录器。适配器在模�
 Safe Task Success，压缩、成功回读、Token/Artifact 和编排证据门禁全部通过。原始证据与完整解释保存在
 `results/v4-preflight/`。projection 本次总 input Token 高于 baseline，Preflight PASS 不能描述成已经证明节省；
 是否执行正式 12-run 必须由用户另行明确决定。
+
+正式实验的唯一入口是：
+
+```bash
+.venv/bin/python -m minicode.evaluation_formal \
+  --protocol benchmarks/context_projection/real_model_protocol_v4.json \
+  --results-root /tmp/minicode-context-v4-formal
+```
+
+入口会在创建结果目录前检查干净仓库和仓库外新路径，再按冻结顺序执行 12 个样本。任务失败但结果完整时继续并保留
+失败样本；缺记录、Usage 无效或中途预算超限时停止。完整批次自动核对正式计划、协议快照、事件、结果槽位、总
+Token 预算和效果门槛，并用退出码 0/1/2 区分 PASS、实验未通过、配置或证据错误。

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
-from collections.abc import Mapping
+import subprocess
+import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
@@ -474,3 +477,69 @@ def _append_event(path: Path, event: object) -> None:
         stream.write("\n")
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the registered formal-experiment batch argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Run one registered MiniCode formal context experiment.",
+    )
+    parser.add_argument("--protocol", type=Path, required=True)
+    parser.add_argument("--results-root", type=Path, required=True)
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path(__file__).resolve().parents[2],
+    )
+    parser.add_argument("--temporary-root", type=Path)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run, record, and gate one registered formal context batch."""
+    args = build_parser().parse_args(argv)
+
+    from minicode.evaluation_preflight_executor import (
+        ContextFormalCommandExecutor,
+    )
+    from minicode.evaluation_summary import summarize_context_experiment_results
+
+    try:
+        executor = ContextFormalCommandExecutor(
+            project_root=args.project_root,
+            temporary_root=args.temporary_root,
+        )
+        executor.validate_environment(args.results_root)
+        result = run_budgeted_context_formal_experiment(
+            protocol_path=args.protocol,
+            results_root=args.results_root,
+            executor=executor,
+        )
+    except (OSError, TypeError, ValueError, subprocess.SubprocessError) as error:
+        print(f"Formal experiment error: {error}", file=sys.stderr)
+        return 2
+
+    if not result.execution_complete:
+        print(
+            "Formal experiment stopped after "
+            f"{len(result.records)}/{result.planned_run_count} recorded samples: "
+            f"{result.stop_reason}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        summary = summarize_context_experiment_results(
+            result.results_root,
+            args.protocol,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        print(f"Formal experiment gate error: {error}", file=sys.stderr)
+        return 2
+
+    print(summary)
+    return 1 if summary.endswith("- Advancement gate: FAIL") else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

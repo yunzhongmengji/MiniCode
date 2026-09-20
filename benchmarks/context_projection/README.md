@@ -100,3 +100,14 @@ v4 结果不得与 v1～v3 混合。
   --context-preflight-protocol \
   benchmarks/context_projection/real_model_protocol_v4.json
 ```
+
+v4 正式实验必须通过唯一批次入口启动，不能手工逐条拼命令：
+
+```bash
+.venv/bin/python -m minicode.evaluation_formal \
+  --protocol benchmarks/context_projection/real_model_protocol_v4.json \
+  --results-root /tmp/minicode-context-v4-formal
+```
+
+该命令要求干净 Git commit 和仓库外的新结果目录；它按协议执行 12 个冻结槽位，保留任务失败样本，缺记录或预算
+越界时停止后续调用，完整后自动运行正式证据与 Advancement gate。真实运行会产生 Provider 调用与人工工具审批。

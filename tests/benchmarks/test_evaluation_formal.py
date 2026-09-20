@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import minicode.evaluation_preflight_executor as executor_module
+import minicode.evaluation_summary as summary_module
 from minicode.evaluation_formal import (
     FormalRunRequest,
+    main,
     run_budgeted_context_formal_experiment,
 )
 
@@ -182,3 +187,196 @@ def test_formal_orchestrator_never_reuses_results_root(tmp_path: Path) -> None:
 
     assert sentinel.read_text(encoding="utf-8") == "keep"
     assert executor.requests == []
+
+
+def test_formal_batch_cli_wires_validation_execution_and_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[str] = []
+
+    class _FakeCommandExecutor:
+        def __init__(self, **_: object) -> None:
+            calls.append("constructed")
+
+        def validate_environment(self, results_root: Path) -> None:
+            assert results_root == tmp_path / "formal"
+            calls.append("validated")
+
+        def execute(self, request: FormalRunRequest) -> bool:
+            calls.append(f"executed:{request.run_index}:{request.arm}")
+            (request.result_directory / "result.json").write_text(
+                json.dumps(
+                    {
+                        "run": {"input_tokens": 100, "output_tokens": 10},
+                        "verdict": {"passed": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return True
+
+    def _fake_summary(results_root: Path, protocol_path: Path) -> str:
+        assert results_root == tmp_path / "formal"
+        assert protocol_path == PROTOCOL_PATH
+        calls.append("summarized")
+        return "- Advancement gate: PASS"
+
+    monkeypatch.setattr(
+        executor_module,
+        "ContextFormalCommandExecutor",
+        _FakeCommandExecutor,
+    )
+    monkeypatch.setattr(
+        summary_module,
+        "summarize_context_experiment_results",
+        _fake_summary,
+    )
+
+    exit_code = main(
+        (
+            "--protocol",
+            str(PROTOCOL_PATH),
+            "--results-root",
+            str(tmp_path / "formal"),
+        )
+    )
+
+    assert exit_code == 0
+    assert calls[:2] == ["constructed", "validated"]
+    assert calls[2:-1] == [
+        f"executed:{index}:{arm}"
+        for index, arm in enumerate(
+            (
+                "baseline",
+                "projection",
+                "projection",
+                "baseline",
+                "baseline",
+                "projection",
+            )
+            * 2,
+            start=1,
+        )
+    ]
+    assert calls[-1] == "summarized"
+    assert "Advancement gate: PASS" in capsys.readouterr().out
+
+
+def test_formal_batch_cli_stops_without_result_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _MissingResultExecutor:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def validate_environment(self, results_root: Path) -> None:
+            pass
+
+        def execute(self, request: FormalRunRequest) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        executor_module,
+        "ContextFormalCommandExecutor",
+        _MissingResultExecutor,
+    )
+    monkeypatch.setattr(
+        summary_module,
+        "summarize_context_experiment_results",
+        lambda *_: (_ for _ in ()).throw(AssertionError("summary called")),
+    )
+
+    exit_code = main(
+        (
+            "--protocol",
+            str(PROTOCOL_PATH),
+            "--results-root",
+            str(tmp_path / "formal"),
+        )
+    )
+
+    assert exit_code == 1
+    assert "stopped after 0/12 recorded samples" in capsys.readouterr().err
+
+
+def test_formal_batch_cli_returns_one_when_advancement_gate_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _RecordedResultExecutor:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def validate_environment(self, results_root: Path) -> None:
+            pass
+
+        def execute(self, request: FormalRunRequest) -> bool:
+            (request.result_directory / "result.json").write_text(
+                json.dumps(
+                    {
+                        "run": {"input_tokens": 100, "output_tokens": 10},
+                        "verdict": {"passed": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return True
+
+    monkeypatch.setattr(
+        executor_module,
+        "ContextFormalCommandExecutor",
+        _RecordedResultExecutor,
+    )
+    monkeypatch.setattr(
+        summary_module,
+        "summarize_context_experiment_results",
+        lambda *_: "- Advancement gate: FAIL",
+    )
+
+    exit_code = main(
+        (
+            "--protocol",
+            str(PROTOCOL_PATH),
+            "--results-root",
+            str(tmp_path / "formal"),
+        )
+    )
+
+    assert exit_code == 1
+
+
+def test_formal_batch_cli_validates_before_creating_results_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _RejectedEnvironmentExecutor:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def validate_environment(self, results_root: Path) -> None:
+            raise ValueError("unsafe fixture")
+
+    monkeypatch.setattr(
+        executor_module,
+        "ContextFormalCommandExecutor",
+        _RejectedEnvironmentExecutor,
+    )
+    results_root = tmp_path / "formal"
+
+    exit_code = main(
+        (
+            "--protocol",
+            str(PROTOCOL_PATH),
+            "--results-root",
+            str(results_root),
+        )
+    )
+
+    assert exit_code == 2
+    assert "unsafe fixture" in capsys.readouterr().err
+    assert not results_root.exists()

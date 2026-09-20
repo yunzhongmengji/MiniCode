@@ -1,0 +1,120 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS large_search_context_recall"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "fc372c248fe9e777e766dc48846624597c66eb31ab66f5e2f69da060bd24c5d8"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "8c2cf9c1c232d6b129fad57cfba11ad9c0ce38a78d9381512cf16c269ade7d29"
+    },
+    "workspace_patch": {
+      "file": "workspace.patch",
+      "sha256": "a0cb33973f070d486358e40cbc91cde6b5dd02d659c4808b7abed92374f672bf"
+    }
+  },
+  "case_id": "large_search_context_recall",
+  "case_manifest": {
+    "allowed_changes": [
+      "service_config/timeouts.py"
+    ],
+    "budget": {
+      "max_tool_calls": 9,
+      "max_turns": 9
+    },
+    "case_id": "large_search_context_recall",
+    "category": "context_recall_repair",
+    "forbidden_actions": [
+      "modify tests",
+      "modify the client registry",
+      "create additional project files",
+      "successfully execute text search more than once"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file"
+      ],
+      "required_successful_tools": [
+        "list_files",
+        "search_text",
+        "read_file",
+        "edit_file",
+        "run_tests"
+      ]
+    }
+  },
+  "context_experiment": {
+    "arm": "baseline",
+    "max_inline_tool_result_bytes": null,
+    "metrics": {
+      "cancelled_readback_count": 0,
+      "canonical_bytes": 53734,
+      "changed_tool_result_count": 0,
+      "failed_readback_count": 0,
+      "model_call_count": 6,
+      "model_visible_bytes": 53734,
+      "projection_bytes_saved": 0,
+      "successful_readback_count": 0
+    },
+    "protocol_id": "context-editing-budget-real-model-pilot-v4",
+    "trace_configuration": {
+      "configuration_schema_version": 2,
+      "max_inline_tool_result_bytes": null,
+      "minimum_net_savings_bytes": null,
+      "retrieval_tool_loading": null,
+      "strategy": "identity"
+    }
+  },
+  "minicode_commit": "b95afeb6fcf78acb9988368ac09ee812b31f90ba",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-20T08:06:35.365960+00:00",
+  "run": {
+    "input_tokens": 13762,
+    "model_call_count": 6,
+    "outcome": "succeeded",
+    "output_tokens": 386,
+    "run_id": "run_6496546643644dabaa3a33535d978cfe",
+    "stop_reason": "completed",
+    "tool_execution_count": 7,
+    "tool_requests": {
+      "edit_file": 1,
+      "list_files": 1,
+      "read_file": 3,
+      "run_tests": 1,
+      "search_text": 1
+    },
+    "turns_used": 6
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [],
+    "requested_forbidden_tools": [],
+    "successful_test_after_last_change": true
+  },
+  "verdict": {
+    "budget_passed": true,
+    "operational_passed": true,
+    "outcome_passed": true,
+    "passed": true,
+    "trace_passed": true
+  },
+  "workspace_status": [
+    " M service_config/timeouts.py"
+  ]
+}

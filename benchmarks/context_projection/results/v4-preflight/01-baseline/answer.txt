@@ -1,0 +1,5 @@
+Test passes. The fix is confirmed.
+
+From the search evidence, `CLIENT_REQUEST_TIMEOUTS` has **25 clients**, first is **accounting-ledger**, last is **transaction-journal**.
+
+Evidence summary: 25 clients; first=accounting-ledger; last=transaction-journal.

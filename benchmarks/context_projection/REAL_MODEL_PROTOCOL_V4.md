@@ -59,6 +59,7 @@ Agent 入口、提取 Trace，再调用已有结果记录器。适配器在模�
   --results-root /tmp/minicode-context-v4-preflight
 ```
 
-代码链路已达到准备真实 Preflight 的标准，Provider 环境、模型名、仓库外结果路径和人工 Approval 方式也已完成
-只读就绪审计；实现已经形成干净 Git 提交并通过提交后定向测试。本阶段仍没有调用真实模型，不能把离线测试描述成
-真实实验结果。下一步必须由用户明确决定是否承担两次真实 Provider 调用并在交互式终端完成工具审批。
+真实 Preflight 已在干净 commit `b95afeb6fcf78acb9988368ac09ee812b31f90ba` 上执行，baseline 与 projection 均
+Safe Task Success，压缩、成功回读、Token/Artifact 和编排证据门禁全部通过。原始证据与完整解释保存在
+`results/v4-preflight/`。projection 本次总 input Token 高于 baseline，Preflight PASS 不能描述成已经证明节省；
+是否执行正式 12-run 必须由用户另行明确决定。

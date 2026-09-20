@@ -1,0 +1,4 @@
+{"arm": "baseline", "event": "run_started", "result_directory": "01-baseline", "run_index": 1}
+{"arm": "baseline", "event": "run_finished", "failure_reason": null, "passed": true, "result_directory": "01-baseline", "result_recorded": true, "run_index": 1}
+{"arm": "projection", "event": "run_started", "result_directory": "02-projection", "run_index": 2}
+{"arm": "projection", "event": "run_finished", "failure_reason": null, "passed": true, "result_directory": "02-projection", "result_recorded": true, "run_index": 2}

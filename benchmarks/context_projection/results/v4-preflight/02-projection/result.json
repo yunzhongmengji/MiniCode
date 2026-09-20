@@ -1,0 +1,128 @@
+{
+  "acceptance": {
+    "exit_code": 0,
+    "stderr": "",
+    "stdout": "PASS large_search_context_recall"
+  },
+  "accepted": true,
+  "agent_exit_code": 0,
+  "artifacts": {
+    "answer": {
+      "file": "answer.txt",
+      "sha256": "a22d71cd39e679bdf1bc3a0054c66d82d694ccd708394213ec125f6a8b875e17"
+    },
+    "trace": {
+      "file": "trace.txt",
+      "sha256": "feda7ba81fb4302b2c4d22fcb7dc58cb62dfc8f604ec2fdf41e32773996a0985"
+    },
+    "workspace_patch": {
+      "file": "workspace.patch",
+      "sha256": "a0cb33973f070d486358e40cbc91cde6b5dd02d659c4808b7abed92374f672bf"
+    }
+  },
+  "case_id": "large_search_context_recall",
+  "case_manifest": {
+    "allowed_changes": [
+      "service_config/timeouts.py"
+    ],
+    "budget": {
+      "max_tool_calls": 9,
+      "max_turns": 9
+    },
+    "case_id": "large_search_context_recall",
+    "category": "context_recall_repair",
+    "forbidden_actions": [
+      "modify tests",
+      "modify the client registry",
+      "create additional project files",
+      "successfully execute text search more than once"
+    ],
+    "ground_truth": {
+      "defined_by": "project_maintainer",
+      "evidence": [
+        "task.txt",
+        "acceptance.py"
+      ]
+    },
+    "schema_version": 2,
+    "trace_expectations": {
+      "forbidden_tool_requests": [
+        "create_file"
+      ],
+      "required_successful_tools": [
+        "list_files",
+        "search_text",
+        "read_file",
+        "edit_file",
+        "run_tests"
+      ]
+    }
+  },
+  "context_experiment": {
+    "arm": "projection",
+    "max_request_bytes": 10000,
+    "metrics": {
+      "cancelled_readback_count": 0,
+      "canonical_bytes": 82251,
+      "changed_tool_result_count": 7,
+      "failed_readback_count": 0,
+      "model_call_count": 8,
+      "model_visible_bytes": 70240,
+      "projection_bytes_saved": 12011,
+      "successful_readback_count": 1
+    },
+    "protocol_id": "context-editing-budget-real-model-pilot-v4",
+    "trace_configuration": {
+      "configuration_schema_version": 3,
+      "excluded_tool_names": [
+        "git_diff",
+        "run_tests"
+      ],
+      "max_request_bytes": 10000,
+      "max_retrievable_output_bytes": 50000,
+      "minimum_net_savings_bytes": 1,
+      "protected_recent_batch_count": 2,
+      "retrieval_tool_loading": "on_reference",
+      "strategy": "budgeted_tool_result_reference"
+    }
+  },
+  "minicode_commit": "b95afeb6fcf78acb9988368ac09ee812b31f90ba",
+  "minicode_dirty": false,
+  "model": "qwen3.7-flash-2026-07-15",
+  "recorded_at_utc": "2026-09-20T08:07:34.905581+00:00",
+  "run": {
+    "input_tokens": 18422,
+    "model_call_count": 8,
+    "outcome": "succeeded",
+    "output_tokens": 486,
+    "run_id": "run_3c47d54c0e874a81b0b0c51b4d77b83d",
+    "stop_reason": "completed",
+    "tool_execution_count": 9,
+    "tool_requests": {
+      "edit_file": 1,
+      "git_diff": 1,
+      "list_files": 1,
+      "read_file": 3,
+      "read_tool_result": 1,
+      "run_tests": 1,
+      "search_text": 1
+    },
+    "turns_used": 8
+  },
+  "schema_version": 2,
+  "trace_evaluation": {
+    "missing_required_tools": [],
+    "requested_forbidden_tools": [],
+    "successful_test_after_last_change": true
+  },
+  "verdict": {
+    "budget_passed": true,
+    "operational_passed": true,
+    "outcome_passed": true,
+    "passed": true,
+    "trace_passed": true
+  },
+  "workspace_status": [
+    " M service_config/timeouts.py"
+  ]
+}

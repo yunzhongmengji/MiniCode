@@ -1,0 +1,18 @@
+{
+  "case_id": "large_search_context_recall",
+  "protocol_id": "context-editing-budget-real-model-pilot-v4",
+  "protocol_snapshot_sha256": "18b26a014564764e2e8b8cd32cb8086f8db28e8112ad499c6175dd8ff7402486",
+  "runs": [
+    {
+      "arm": "baseline",
+      "result_directory": "01-baseline",
+      "run_index": 1
+    },
+    {
+      "arm": "projection",
+      "result_directory": "02-projection",
+      "run_index": 2
+    }
+  ],
+  "schema_version": 1
+}

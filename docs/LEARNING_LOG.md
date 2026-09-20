@@ -934,3 +934,16 @@
 - 提交后工作树为空，协议、批次入口和命令适配器均能从 HEAD 读取；关键 Preflight 定向测试 50 个再次通过。
 - 该提交只建立可复现实验版本，没有运行 Provider。下一步属于会产生外部调用和费用的真实 Preflight，必须由用户
   明确决定，并在可交互终端逐次核对 `edit_file` 与 `run_tests` 审批。
+
+## 2026-09-20 / Context Editing v1 / B14 v4 真实 Preflight
+
+- 用户明确授权后，在干净 commit `b95afeb` 上通过唯一批次入口真实运行 baseline → projection；四次人工审批都只
+  涉及目标文件修改和相关测试。两组隐藏验收、运行状态、Trace 工具契约和最终回答全部成功。
+- 最终 Preflight gate PASS：两次共 32184 input / 872 output Token，projection 的请求级替换累计为 7，一次历史
+  搜索结果回读成功，失败/取消回读为 0，协议快照、计划、事件、结果槽位和 Artifact 全部通过。
+- projection 自身从累计 82251 canonical bytes 降至 70240 model-visible bytes，节省 12011 bytes；双方共有的前
+  6 次调用中 projection 少 839 input Token（约 6.10%）。
+- 但 projection 多执行 `git_diff`、回读和两个模型轮次，整次 input 为 18422，对比 baseline 13762 增加 4660
+  （33.86%）。单样本不能把额外轨迹归因于压缩，Preflight PASS 只代表安全性与机制门禁通过，不代表效果已成立。
+- 证据归档到 `benchmarks/context_projection/results/v4-preflight/`。正式 12-run 仍需单独授权，并以协议冻结的
+  聚合降低至少 5%、单 Case 回归不超过 5%为效果结论；不得看到本结果后改写 v4 参数。

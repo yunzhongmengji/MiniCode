@@ -87,14 +87,16 @@ v1、v2 与 v3 的结果不得混合。
 
 预算驱动策略的新协议见 `REAL_MODEL_PROTOCOL_V4.md` 和
 `real_model_protocol_v4.json`。v4 已冻结 schema 2 Identity baseline、schema 3 budgeted projection、
-模型、Case、Preflight 顺序、Token 预算和晋级门槛；当前只有独立加载器与篡改测试，尚未接入运行/记录命令，
-也没有产生真实模型结果。v4 结果不得与 v1～v3 混合。
+模型、Case、Preflight 顺序、Token 预算和晋级门槛。真实 Preflight 已保存在 `results/v4-preflight/`：两组任务
+均安全成功，projection 确实压缩并成功回读，全部 Preflight 门禁 PASS；但 projection 因多出两个模型调用，整次
+input Token 比 baseline 高 33.86%，因此不能把 PASS 描述成已经证明节省。完整解释见该目录的 `REPORT.md`。
+v4 结果不得与 v1～v3 混合。
 
 两条 Preflight 结果使用专用门禁，不能交给要求 12 条正式样本的汇总模式：
 
 ```bash
 .venv/bin/python -m minicode.evaluation_summary \
-  benchmarks/context_projection/results/v3-preflight \
+  benchmarks/context_projection/results/v4-preflight \
   --context-preflight-protocol \
-  benchmarks/context_projection/real_model_protocol_v3.json
+  benchmarks/context_projection/real_model_protocol_v4.json
 ```

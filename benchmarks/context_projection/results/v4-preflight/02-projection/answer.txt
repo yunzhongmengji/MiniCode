@@ -1,0 +1,3 @@
+From the CLIENT_REQUEST_TIMEOUTS registry in `client_registry.py`, I can see 25 clients listed (lines 6-30). The first client is "accounting-ledger" and the last is "transaction-journal".
+
+Evidence summary: 25 clients; first=accounting-ledger; last=transaction-journal.

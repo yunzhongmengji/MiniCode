@@ -385,3 +385,14 @@ B13 已完成可复现实验提交：预算压缩、v4 协议、批次执行、�
 提交后关键 Preflight 定向测试再次通过。当前不再有离线代码门禁；下一步是需要用户明确决定的两次真实 Provider
 Preflight。运行时必须在交互式终端审查工具参数，只批准案例允许的 `edit_file` 与 `run_tests`，并将结果保存在
 仓库外。正式 12-run 实验仍必须等待 Preflight 门禁通过。
+
+B14 已完成 v4 真实 Preflight：
+
+1. baseline 与 projection 均通过隐藏验收，协议、Provider Usage、Artifact 和编排证据全部 PASS。
+2. projection 累计节省 12011 个模型可见 bytes，并成功回读一次被引用的搜索结果，没有失败或取消回读。
+3. 对齐共有前 6 次调用时 projection 少 839 input Token，但它多走两个模型轮次，最终总 input 反而增加 33.86%。
+4. 这组单样本证明机制安全可运行，不能证明端到端收益，也不能确定额外轨迹由压缩还是模型随机性造成。
+5. 原始证据与报告已归档到 `benchmarks/context_projection/results/v4-preflight/`；v4 参数不因结果而回改。
+
+下一步是独立的费用决策：若继续，严格执行已冻结的 12-run 正式实验，并由最终聚合门禁判断效果；若不继续，当前
+项目也已经具备“预注册协议、真实 A/B、诚实负面信号与可复核证据”的完整面试故事。分页仍留给超大结果证据。

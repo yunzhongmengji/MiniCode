@@ -960,3 +960,14 @@
 - 5 个离线测试覆盖 12 次精确顺序、失败样本保留、缺记录即停、累计预算停止和旧目录保护；本步骤没有调用模型。
 - 下一步只把该控制器接到已经验证过的 prepare/run/result 命令适配器，并让正式汇总核对计划与事件证据；在这些
   门禁完成并形成干净 commit 前，不启动 12 次真实调用。
+
+## 2026-09-20 / Context Editing v1 / B16 正式实验命令适配器接线
+
+- 将 B10 的命令适配器拆为一个公共 `ContextEvaluationCommandExecutor` 和两个薄校验器；工作区准备、Agent
+  子进程、Trace 提取、`evaluation_result` 调用及诊断文件写入仍只有一份实现。
+- `ContextPreflightCommandExecutor` 继续校验两次 Preflight 的 Case、序号和 Arm；新增
+  `ContextFormalCommandExecutor` 按协议展开两个 Case 的 12 个槽位，并要求请求位置完全一致。
+- 正式请求在创建评测工作区和启动子进程前完成校验。测试证明 12 个样本共 24 个 run/result 命令复用相同边界，
+  错误 Case/Arm 位置不会产生工作区记录或执行命令。
+- 本步骤没有增加批次 CLI，也没有调用 Provider。下一步只让正式汇总验证 `formal-plan.json`、事件顺序、结果路径
+  和总 Token 预算；该证据门禁通过并提交后，才启动真实 12-run。

@@ -6,8 +6,13 @@ from pathlib import Path
 import pytest
 
 import minicode.evaluation_preflight_executor as executor_module
+from minicode.evaluation_formal import (
+    FormalRunRequest,
+    run_budgeted_context_formal_experiment,
+)
 from minicode.evaluation_preflight import run_budgeted_context_preflight
 from minicode.evaluation_preflight_executor import (
+    ContextFormalCommandExecutor,
     ContextPreflightCommandExecutor,
     EvaluationCommandResult,
     extract_evaluation_trace,
@@ -49,7 +54,10 @@ class _FakeCommandRunner:
 
         assert module == "minicode.evaluation_result"
         output = Path(command[command.index("--output") + 1])
-        output.write_text("{}\n", encoding="utf-8")
+        output.write_text(
+            '{"run": {"input_tokens": 100, "output_tokens": 10}}\n',
+            encoding="utf-8",
+        )
         (output.parent / "workspace.patch").write_text("", encoding="utf-8")
         return EvaluationCommandResult(
             returncode=0,
@@ -125,6 +133,76 @@ def test_command_executor_runs_both_arms_through_existing_cli_boundaries(
         == str(results_root / "protocol.snapshot.json")
         for command in result_commands
     )
+
+
+def test_formal_executor_reuses_existing_cli_boundaries_for_all_samples(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        executor_module,
+        "_assert_clean_repository",
+        lambda project_root: None,
+    )
+    runner = _FakeCommandRunner()
+    executor = ContextFormalCommandExecutor(
+        project_root=PROJECT_ROOT,
+        temporary_root=tmp_path,
+        command_runner=runner,
+        python_executable="python-fixture",
+    )
+
+    result = run_budgeted_context_formal_experiment(
+        protocol_path=PROTOCOL_PATH,
+        results_root=tmp_path / "formal",
+        executor=executor,
+    )
+
+    assert result.execution_complete
+    assert len(runner.calls) == 24
+    run_commands = runner.calls[::2]
+    assert [command[command.index("--arm") + 1] for command, _ in run_commands] == [
+        "baseline",
+        "projection",
+        "projection",
+        "baseline",
+        "baseline",
+        "projection",
+    ] * 2
+    assert all((record.request.result_directory / "trace.txt").is_file() for record in result.records)
+
+
+def test_formal_executor_rejects_wrong_position_before_running_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        executor_module,
+        "_assert_clean_repository",
+        lambda project_root: None,
+    )
+    runner = _FakeCommandRunner()
+    executor = ContextFormalCommandExecutor(
+        project_root=PROJECT_ROOT,
+        temporary_root=tmp_path,
+        command_runner=runner,
+    )
+    result_directory = tmp_path / "formal" / "01-wrong"
+    result_directory.mkdir(parents=True)
+    request = FormalRunRequest(
+        run_index=1,
+        protocol_snapshot_path=PROTOCOL_PATH,
+        protocol_id="context-editing-budget-real-model-pilot-v4",
+        case_id="large_search_context_recall",
+        arm="baseline",
+        result_directory=result_directory,
+    )
+
+    with pytest.raises(ValueError, match="position disagrees"):
+        executor.execute(request)
+
+    assert runner.calls == []
+    assert not (result_directory / "workspace.path.txt").exists()
 
 
 def test_trace_extraction_handles_prompt_on_same_line() -> None:

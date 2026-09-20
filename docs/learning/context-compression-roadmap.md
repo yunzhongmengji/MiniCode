@@ -409,3 +409,13 @@ B15 已建立正式实验控制器的离线边界：
 下一小步只复用 B10 的 prepare/run/result 执行链路接入 `FormalRunRequest`，避免复制一套 Agent 执行代码；随后再
 单独将 `formal-plan.json` 和 `formal-events.jsonl` 纳入最终汇总门禁。两步都通过并形成干净 commit 后，才运行已
 授权的 12 个真实样本。
+
+B16 已把正式请求接入经过 Preflight 验证的真实命令边界：
+
+1. 公共执行器统一负责 prepare、run、Trace 提取和 result record，Preflight 与 Formal 不再各自复制这条链路。
+2. 两个薄执行器只负责各自的计划校验：Preflight 对照两次预检，Formal 对照 Case 优先展开的 12 次正式顺序。
+3. 计划位置不一致会在准备 workspace 和执行子进程前拒绝，避免错误调用产生费用后才被发现。
+4. 离线假命令测试已经完整穿过 12 个样本、24 条 run/result 命令；没有调用 Provider。
+
+下一小步只把 B15 的正式计划、事件、结果槽位和总 Token 预算纳入最终汇总门禁，并增加一个正式批次 CLI 入口。
+完成后还需形成干净 commit，才能真正执行已经授权的 12 个 Provider 样本。

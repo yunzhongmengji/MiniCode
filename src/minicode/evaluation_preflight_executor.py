@@ -1,4 +1,4 @@
-"""Execute one registered Preflight arm through the existing CLI boundaries."""
+"""Execute registered context experiments through existing CLI boundaries."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from minicode.context_experiment_protocol import (
     BudgetedContextExperimentProtocol,
     load_budgeted_context_experiment_protocol,
 )
-from minicode.evaluation_preflight import PreflightRunRequest
 from minicode.evaluation_prepare import prepare_evaluation_workspace
 from minicode.evaluation_run import EvaluationArm
 
@@ -37,6 +36,28 @@ class EvaluationCommandRunner(Protocol):
         cwd: Path,
     ) -> EvaluationCommandResult:
         """Execute one command and capture its output."""
+
+
+class ContextEvaluationRunRequest(Protocol):
+    """The request fields shared by Preflight and formal samples."""
+
+    @property
+    def run_index(self) -> int: ...
+
+    @property
+    def protocol_snapshot_path(self) -> Path: ...
+
+    @property
+    def protocol_id(self) -> str: ...
+
+    @property
+    def case_id(self) -> str: ...
+
+    @property
+    def arm(self) -> str: ...
+
+    @property
+    def result_directory(self) -> Path: ...
 
 
 class StreamingSubprocessCommandRunner:
@@ -80,8 +101,8 @@ class StreamingSubprocessCommandRunner:
         )
 
 
-class ContextPreflightCommandExecutor:
-    """Prepare, run, extract, and record one context experiment arm."""
+class ContextEvaluationCommandExecutor:
+    """Shared prepare, run, extract, and record implementation."""
 
     def __init__(
         self,
@@ -116,7 +137,7 @@ class ContextPreflightCommandExecutor:
             self._project_root,
         )
 
-    def execute(self, request: PreflightRunRequest) -> bool:
+    def execute(self, request: ContextEvaluationRunRequest) -> bool:
         """Execute one frozen arm and leave all diagnostic artifacts on disk."""
         _assert_results_outside_repository(
             request.result_directory,
@@ -126,7 +147,7 @@ class ContextPreflightCommandExecutor:
         protocol = load_budgeted_context_experiment_protocol(
             request.protocol_snapshot_path
         )
-        arm = _validate_request_against_protocol(request, protocol)
+        arm = self._validate_request(request, protocol)
         case_root = (
             self._project_root
             / "benchmarks"
@@ -206,6 +227,35 @@ class ContextPreflightCommandExecutor:
         )
         return recorder_result.returncode == 0
 
+    def _validate_request(
+        self,
+        request: ContextEvaluationRunRequest,
+        protocol: BudgetedContextExperimentProtocol,
+    ) -> EvaluationArm:
+        raise NotImplementedError
+
+
+class ContextPreflightCommandExecutor(ContextEvaluationCommandExecutor):
+    """Execute only requests belonging to the frozen Preflight plan."""
+
+    def _validate_request(
+        self,
+        request: ContextEvaluationRunRequest,
+        protocol: BudgetedContextExperimentProtocol,
+    ) -> EvaluationArm:
+        return _validate_preflight_request(request, protocol)
+
+
+class ContextFormalCommandExecutor(ContextEvaluationCommandExecutor):
+    """Execute only requests belonging to the frozen formal schedule."""
+
+    def _validate_request(
+        self,
+        request: ContextEvaluationRunRequest,
+        protocol: BudgetedContextExperimentProtocol,
+    ) -> EvaluationArm:
+        return _validate_formal_request(request, protocol)
+
 
 def extract_evaluation_trace(stderr: str) -> str:
     """Extract the one canonical Trace suffix from mixed CLI stderr."""
@@ -222,20 +272,14 @@ def extract_evaluation_trace(stderr: str) -> str:
     return trace if trace.endswith("\n") else f"{trace}\n"
 
 
-def _validate_request_against_protocol(
-    request: PreflightRunRequest,
+def _validate_preflight_request(
+    request: ContextEvaluationRunRequest,
     protocol: BudgetedContextExperimentProtocol,
 ) -> EvaluationArm:
-    if request.protocol_id != protocol.protocol_id:
-        raise ValueError("Preflight request protocol_id disagrees with snapshot")
+    arm = _validate_shared_request(request, protocol, phase="Preflight")
 
     if request.case_id != protocol.preflight_plan.case_id:
         raise ValueError("Preflight request case disagrees with snapshot")
-
-    try:
-        arm = EvaluationArm(request.arm)
-    except ValueError as error:
-        raise ValueError("Preflight request contains an unknown arm") from error
 
     if not 1 <= request.run_index <= len(protocol.preflight_plan.arm_order):
         raise ValueError("Preflight request run_index is outside the plan")
@@ -246,6 +290,43 @@ def _validate_request_against_protocol(
         raise ValueError("Preflight request order disagrees with snapshot")
 
     return arm
+
+
+def _validate_formal_request(
+    request: ContextEvaluationRunRequest,
+    protocol: BudgetedContextExperimentProtocol,
+) -> EvaluationArm:
+    arm = _validate_shared_request(request, protocol, phase="Formal")
+    schedule = tuple(
+        (case_id, scheduled_arm)
+        for case_id in protocol.cases
+        for scheduled_arm in protocol.paired_arm_order_per_case
+    )
+
+    if not 1 <= request.run_index <= len(schedule):
+        raise ValueError("Formal request run_index is outside the plan")
+
+    expected_case_id, expected_arm = schedule[request.run_index - 1]
+
+    if request.case_id != expected_case_id or arm.value != expected_arm:
+        raise ValueError("Formal request position disagrees with snapshot")
+
+    return arm
+
+
+def _validate_shared_request(
+    request: ContextEvaluationRunRequest,
+    protocol: BudgetedContextExperimentProtocol,
+    *,
+    phase: str,
+) -> EvaluationArm:
+    if request.protocol_id != protocol.protocol_id:
+        raise ValueError(f"{phase} request protocol_id disagrees with snapshot")
+
+    try:
+        return EvaluationArm(request.arm)
+    except ValueError as error:
+        raise ValueError(f"{phase} request contains an unknown arm") from error
 
 
 def _assert_clean_repository(project_root: Path) -> None:
@@ -270,7 +351,7 @@ def _assert_clean_repository(project_root: Path) -> None:
 
     if status:
         raise ValueError(
-            "registered Preflight requires a clean MiniCode repository"
+            "registered context experiment requires a clean MiniCode repository"
         )
 
 
@@ -282,7 +363,7 @@ def _assert_results_outside_repository(
 
     if resolved_result.is_relative_to(project_root):
         raise ValueError(
-            "Preflight results must be created outside the MiniCode repository"
+            "context experiment results must be created outside the MiniCode repository"
         )
 
 
@@ -295,7 +376,7 @@ def _assert_new_results_root_outside_repository(
 
     if resolved_result.is_relative_to(project_root):
         raise ValueError(
-            "Preflight results must be created outside the MiniCode repository"
+            "context experiment results must be created outside the MiniCode repository"
         )
 
     if results_root.exists():

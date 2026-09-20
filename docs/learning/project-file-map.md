@@ -9,10 +9,12 @@
 | `artifacts.py` | 定义文本 Artifact 的引用、存取接口和内存实现；内容用 SHA-256 标识 | 它是通用存储能力，不主动截断 ToolResult，也不决定何时存；当前 Dispatcher 在配置 Store 时把工具输出另存一份 |
 | `checkpoints.py` | 定义可恢复的 `RunCheckpoint`、合法性检查、pending 调用计算、Store 接口及内存实现 | 保存时机由 QueryLoop 决定；Checkpoint 是恢复状态，不是事件日志 |
 | `checkpoint_codec.py` | 在 `RunCheckpoint` 与带版本号的 JSON 文本之间转换 | 只编码/解码，不读写磁盘 |
+| `context_editing.py` | 测量完整请求压力，并从 retention 的候选中按最旧优先生成预算选择计划，再校验并应用计划 | 只修改本轮模型视图，不修改 canonical history；预算 projector 已调用它，默认 Identity 不调用 |
 | `context_profile.py` | 把一次 `ModelRequest` 分为指令、消息、工具定义、工具调用、工具结果，并比较 canonical 与模型投影的 UTF-8 字节和变化结果数 | 是测量工具，不执行压缩；byte 不等于模型 Token，变化结果数在当前引用 Projector 下才等于引用数 |
-| `context_projection.py` | 定义“完整请求 → 本轮模型可见请求”的投影接口；先生成较老成功结果的候选引用，再要求工具结果毛节省严格覆盖回读 Tool Spec 开销 | 默认仍使用 Identity Projector；短引用和按需 Tool Spec 只改变模型视图，不修改完整历史或 Checkpoint |
-| `context_retrieval.py` | 按 `call_id` 返回原始 ToolResult；`RunToolResultSource` 固定一个 run_id，并从该 Run 的最新 Checkpoint 查找 | 只在显式投影配置下由回读 Tool 使用；Source 的 Run 由宿主组装代码决定，不由模型参数决定 |
-| `context_retention.py` | 把 ToolResult 分为 protected 和 eligible | 只分类候选，不修改请求；eligible 不等于一定安全删除 |
+| `context_projection_config.py` | 定义旧 projector 的 schema 2 配置，以及预算 projector 的完整 schema 3 配置、稳定 JSON 字段和严格解析 | 只描述和校验配置，不投影请求；事件写入仍由 QueryLoop 完成 |
+| `context_projection.py` | 定义“完整请求 → 本轮模型可见请求”的投影接口；包含旧阈值 projector 和预算驱动 projector | 默认仍使用 Identity；CodingAgent 工厂可显式安全组装预算版，但普通 CLI 尚未开放配置参数 |
+| `context_retrieval.py` | 定义稳定的历史结果引用格式，并按 `call_id` 返回原始 ToolResult；`RunToolResultSource` 固定一个 run_id，从该 Run 的最新 Checkpoint 查找 | 只在显式投影配置下由回读 Tool 使用；Source 的 Run 由宿主组装代码决定，不由模型参数决定 |
+| `context_retention.py` | 为每个 ToolResult 生成最近、错误、排除工具、无法回读或可选候选的确定性理由 | 只生成决策表，不修改请求；eligible 仍不等于最终一定会压缩 |
 | `conversation.py` | 定义 `ConversationItem` 类型别名：`Message | ToolCall | ToolResult` | 不是一个有状态的对话历史类 |
 | `events.py` | 定义事件种类、不可变事件、Ledger 接口和内存账本 | 其他组件调用它记录事实；它本身不恢复任务 |
 | `file_checkpoint_store.py` | 把 Checkpoint 编码后原子写入文件，并按 Run ID 读取最新状态 | 解决跨进程状态保存，不保证工具副作用恰好执行一次 |
@@ -22,7 +24,7 @@
 | `query_loop.py` | 核心状态机：构造请求、注入 Skill、投影上下文、调用模型、执行工具、累计预算、保存 Checkpoint并决定停止 | 它是核心编排器，但具体工具权限和执行由 Dispatcher 负责 |
 | `replay.py` | 校验并只读汇总一段 Event 流，统计结果、模型调用、工具调用和 Checkpoint 次数 | 不读取 Checkpoint，不继续执行；真正恢复在 `QueryLoop.resume()` |
 | `tool_approval.py` | 定义人工审批接口 | 审批结果仍由 Dispatcher 使用，接口本身不执行工具 |
-| `tool_calls.py` | 定义 JSON 值、`ToolCall` 和 `ToolResult` 协议 | 文件名是复数；它定义格式，不调用工具 |
+| `tool_calls.py` | 定义 JSON 值、普通容器转换、`ToolCall` 和 `ToolResult` 协议 | 文件名是复数；它定义格式，不调用工具 |
 | `tool_policy.py` | 定义 allow/deny/ask 决策和配置化策略 | Policy 决定权限，Approval 只处理 ask 后的人类选择 |
 | `tool_runtime.py` | 定义 QueryLoop 所依赖的最小执行接口：ToolCall → ToolResult | Dispatcher 和 ScriptedToolRuntime 都能实现这个接口 |
 
@@ -128,8 +130,10 @@ ToolResult 返回 QueryLoop
 | 文件 | 准确职责 |
 |---|---|
 | `cli.py` | 解析 `run/resume` 参数，读取环境配置，选择 Checkpoint 目录，组装运行依赖，启动异步任务，打印结果和可选 Trace |
-| `coding_agent.py` | `CodingAgent` 是面向产品的薄封装；`build_coding_agent()` 是 composition root，默认注册七个工具并组装 Policy、Dispatcher 和 QueryLoop；显式设置上下文阈值时才同时组装短引用投影器与第八个回读工具 |
+| `coding_agent.py` | `CodingAgent` 是面向产品的薄封装；`build_coding_agent()` 是 composition root，默认注册七个工具并组装 Policy、Dispatcher 和 QueryLoop；显式选择旧阈值或预算投影时才组装对应 projector 与第八个回读工具，两种模式互斥 |
+| `context_experiment_protocol.py` | 严格加载预算上下文实验的预注册 JSON，并交叉校验模型、两组配置、Case、运行数、预算和晋级门槛 | 只登记实验，不启动 Agent、不记录结果；旧 v1～v3 协议仍由旧加载器解释 |
 | `context_comparison.py` | 在临时工作区用同一个确定性条件模型运行关闭/开启两组上下文策略，汇总累计模型可见 bytes、投影节省、调用数和回读结果并输出 JSON | 是离线协议实验，不调用真实模型；bytes 不是 Token，最终答案相同只证明脚本条件一致 |
+| `context_trace.py` | 从 Trace 统一统计上下文 bytes、替换数量和历史结果回读结果，并校验前后 byte 关系 | 只计算两种评测共用的事实；不判断协议 Arm，也不决定实验是否通过 |
 | `workspace.py` | 将文件解析、读取、创建、替换和遍历限制在一个根目录中，并实施文件/数量/路径边界 |
 
 ## Coding Agent 评测：另一套 evaluation
@@ -140,10 +144,12 @@ ToolResult 返回 QueryLoop
 |---|---|
 | `evaluation_case.py` | 读取 `case.json`，定义 Ground Truth、允许修改、禁止动作、Trace 期望和预算 |
 | `evaluation_prepare.py` | 只复制 Case 的初始 `workspace/` 到临时目录，并创建 Git 基线 |
-| `evaluation_run.py` | 读取 `task.txt` 和预算，转成 `minicode run ... --trace` 参数并真正运行 Agent |
+| `evaluation_run.py` | 读取 `task.txt` 和预算，转成 `minicode run ... --trace` 参数；实验模式还从预注册协议解析 Arm、模型和 projector 配置后运行 Agent |
+| `evaluation_preflight.py` | 从预注册协议冻结两组计划，强制顺序执行、失败即停并追加事件；也负责严格校验计划/事件/结果路径证据，并提供整批命令入口，具体单轮命令仍委托 executor |
+| `evaluation_preflight_executor.py` | 实现一次 Preflight Arm：准备隔离工作区，通过现有 CLI 运行 Agent、提取 Trace、调用结果记录器；运行前检查干净仓库和仓库外结果目录 |
 | `evaluation_trace.py` | 检查要求的工具是否成功、是否请求禁止工具、最后修改后是否重新测试 |
-| `evaluation_result.py` | 解析 Trace、运行模型不可见的 `acceptance.py`、生成补丁，组合 outcome/operational/budget/trace 四维判定并保存哈希记录 |
-| `evaluation_summary.py` | 重新校验结果工件哈希，汇总多个 `result.json`；不重新调用模型 |
+| `evaluation_result.py` | 解析 Trace、复用公共上下文统计、运行模型不可见的 `acceptance.py`、生成补丁，组合四维判定并保存哈希；v4 从协议文件核对 Case/模型并按 Arm 使用独立的 schema 2/schema 3 校验入口 |
+| `evaluation_summary.py` | 重新校验结果工件哈希，汇总多个 `result.json`；Preflight 按协议版本分别核对 schema 2/schema 3 配置，并检查任务、Token、回读、工件与协议快照门禁；不重新调用模型 |
 
 从任务到记录的流程：
 

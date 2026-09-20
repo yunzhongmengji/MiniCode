@@ -5,14 +5,13 @@ import asyncio
 from pydantic import Field, field_validator
 
 from minicode.core.context_retrieval import (
+    DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
     RunToolResultSource,
     ToolResultLookupError,
 )
 from minicode.tools.base import ToolExecutionError
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
-
-_DEFAULT_MAX_BYTES = 50_000
 
 
 class ReadToolResultArguments(ToolArguments):
@@ -52,7 +51,7 @@ class ReadToolResultTool:
         self,
         source: RunToolResultSource,
         *,
-        max_bytes: int = _DEFAULT_MAX_BYTES,
+        max_bytes: int = DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
     ) -> None:
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int):
             raise TypeError("max_bytes must be an integer")
@@ -62,6 +61,11 @@ class ReadToolResultTool:
 
         self._source = source
         self._max_bytes = max_bytes
+
+    @property
+    def max_bytes(self) -> int:
+        """Return the largest historical output this tool can restore."""
+        return self._max_bytes
 
     @property
     def spec(self) -> ToolSpec:

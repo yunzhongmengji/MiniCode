@@ -14,6 +14,9 @@ from minicode.core.checkpoints import (
     InMemoryCheckpointStore,
     RunCheckpoint,
 )
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
 from minicode.core.events import EventKind, InMemoryEventLedger
 from minicode.core.messages import Message, MessageRole
 from minicode.core.model import ModelResponse
@@ -28,6 +31,16 @@ from minicode.models.scripted import ScriptedModel
 from minicode.tools.process import AsyncioProcessRunner
 from minicode.tools.scripted import ScriptedToolRuntime
 from minicode.workspace import Workspace
+
+
+def _budgeted_context_configuration() -> BudgetedContextProjectionConfiguration:
+    return BudgetedContextProjectionConfiguration(
+        max_request_bytes=1_000,
+        protected_recent_batch_count=1,
+        minimum_net_savings_bytes=1,
+        excluded_tool_names=(),
+        max_retrievable_output_bytes=50_000,
+    )
 
 
 def test_default_coding_policy_separates_observation_and_side_effects() -> None:
@@ -286,8 +299,10 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("projection_mode", ("threshold", "budget"))
 async def test_opt_in_tool_result_references_support_historical_readback(
     tmp_path: Path,
+    projection_mode: str,
 ) -> None:
     old_content = "historical evidence\n" * 40
     (tmp_path / "old.txt").write_text(old_content, encoding="utf-8")
@@ -317,6 +332,15 @@ async def test_opt_in_tool_result_references_support_historical_readback(
     )
     event_ledger = InMemoryEventLedger(run_id="run_context_001")
     checkpoint_store = InMemoryCheckpointStore()
+    projection_options: dict[str, object]
+
+    if projection_mode == "threshold":
+        projection_options = {"max_inline_tool_result_bytes": 100}
+    else:
+        projection_options = {
+            "budgeted_context_configuration": _budgeted_context_configuration()
+        }
+
     agent = build_coding_agent(
         model=model,
         workspace=Workspace(tmp_path),
@@ -325,7 +349,7 @@ async def test_opt_in_tool_result_references_support_historical_readback(
         checkpoint_store=checkpoint_store,
         max_turns=4,
         max_tool_calls=3,
-        max_inline_tool_result_bytes=100,
+        **projection_options,  # type: ignore[arg-type]
     )
 
     result = await agent.run("Compare the old and latest evidence.")
@@ -376,9 +400,19 @@ async def test_opt_in_tool_result_references_support_historical_readback(
     )
     third_projection = model_started_events[2].payload["context_projection"]
     assert isinstance(third_projection, Mapping)
-    assert third_projection["strategy"] == "tool_result_reference"
-    assert third_projection["max_inline_tool_result_bytes"] == 100
-    assert third_projection["configuration_schema_version"] == 2
+
+    if projection_mode == "threshold":
+        assert third_projection["strategy"] == "tool_result_reference"
+        assert third_projection["max_inline_tool_result_bytes"] == 100
+        assert third_projection["configuration_schema_version"] == 2
+    else:
+        assert third_projection["strategy"] == "budgeted_tool_result_reference"
+        assert third_projection["configuration_schema_version"] == 3
+        assert third_projection["max_request_bytes"] == 1_000
+        assert third_projection["protected_recent_batch_count"] == 1
+        assert third_projection["excluded_tool_names"] == ()
+        assert third_projection["max_retrievable_output_bytes"] == 50_000
+
     assert third_projection["minimum_net_savings_bytes"] == 1
     assert third_projection["retrieval_tool_loading"] == "on_reference"
     assert third_projection["changed_tool_result_count"] == 1
@@ -407,7 +441,18 @@ def test_tool_result_references_require_retrievable_run_state(tmp_path: Path) ->
             model=ScriptedModel(responses=(ModelResponse(content="Done."),)),
             workspace=Workspace(tmp_path),
             process_runner=AsyncioProcessRunner(),
+            budgeted_context_configuration=_budgeted_context_configuration(),
+        )
+
+
+def test_context_projection_modes_are_mutually_exclusive(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="are mutually exclusive"):
+        build_coding_agent(
+            model=ScriptedModel(responses=(ModelResponse(content="Done."),)),
+            workspace=Workspace(tmp_path),
+            process_runner=AsyncioProcessRunner(),
             max_inline_tool_result_bytes=100,
+            budgeted_context_configuration=_budgeted_context_configuration(),
         )
 
 

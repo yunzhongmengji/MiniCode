@@ -1,6 +1,6 @@
 import pytest
 
-from minicode.core.tool_calls import ToolCall
+from minicode.core.tool_calls import ToolCall, to_plain_json
 
 
 def test_tool_call_stores_identity_name_and_arguments() -> None:
@@ -56,6 +56,29 @@ def test_tool_call_copies_nested_arguments_from_caller() -> None:
     original_arguments["options"]["mode"] = "dangerous"
 
     assert tool_call.arguments["options"]["mode"] == "safe"
+
+
+def test_to_plain_json_restores_mutable_builtin_containers() -> None:
+    tool_call = ToolCall(
+        call_id="call_001",
+        name="example",
+        arguments={
+            "options": {
+                "values": [1, True],
+            }
+        },
+    )
+
+    plain_arguments = to_plain_json(tool_call.arguments)
+
+    assert plain_arguments == {
+        "options": {
+            "values": [1, True],
+        }
+    }
+    assert isinstance(plain_arguments, dict)
+    assert isinstance(plain_arguments["options"], dict)
+    assert isinstance(plain_arguments["options"]["values"], list)
 
 
 def test_tool_call_nested_arguments_cannot_be_modified() -> None:

@@ -21,5 +21,8 @@
 - [M1：数据协议与 Fake Model](m1-data-protocols.md)
 - [Agent 面试考点与秋招发展路线](agent-interview-roadmap.md)：当前能力、代码证据、边界、阶段门槛和下一小步。
 - [MiniCode 源码文件地图](project-file-map.md)：Core、Models、Skills、Tools、外层组装与评测的职责和调用链。
+- [全局复杂度审查与精简建议](simplification-review.md)：重复实现、提前抽象、必要边界，以及分步精简的证据和验收标准。
+- [上下文压缩策略判断](context-compression-strategy.md)：v3 证据、保留窗口、原文恢复边界、推荐方案与小步验收。
+- [上下文压缩完整路线](context-compression-roadmap.md)：最终架构约束、历史漏洞、依赖顺序和各阶段晋级标准。
 
 每个阶段结束时检查：文件地图、调用链、核心语法、失败模式、测试证据和复习题是否齐全。

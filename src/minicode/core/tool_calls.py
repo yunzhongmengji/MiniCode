@@ -11,6 +11,17 @@ type JsonValue = (
 )
 
 
+def to_plain_json(value: JsonValue) -> JsonValue:
+    """Convert frozen JSON containers into mutable built-in containers."""
+    if isinstance(value, Mapping):
+        return {key: to_plain_json(item) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return [to_plain_json(item) for item in value]
+
+    return value
+
+
 def _freeze_value(value: object) -> JsonValue:
     """Validate and recursively copy values into read-only structures."""
 

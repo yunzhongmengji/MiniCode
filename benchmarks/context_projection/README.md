@@ -85,6 +85,11 @@ schema 2、`minimum_net_savings_bytes=1` 和 `retrieval_tool_loading=on_referenc
 运行前审计见 `PREFLIGHT_V3_READINESS.md`。
 v1、v2 与 v3 的结果不得混合。
 
+预算驱动策略的新协议见 `REAL_MODEL_PROTOCOL_V4.md` 和
+`real_model_protocol_v4.json`。v4 已冻结 schema 2 Identity baseline、schema 3 budgeted projection、
+模型、Case、Preflight 顺序、Token 预算和晋级门槛；当前只有独立加载器与篡改测试，尚未接入运行/记录命令，
+也没有产生真实模型结果。v4 结果不得与 v1～v3 混合。
+
 两条 Preflight 结果使用专用门禁，不能交给要求 12 条正式样本的汇总模式：
 
 ```bash

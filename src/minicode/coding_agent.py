@@ -2,7 +2,14 @@
 
 from minicode.core.artifacts import ArtifactStore
 from minicode.core.checkpoints import CheckpointStore, RunCheckpoint
-from minicode.core.context_projection import ToolResultReferenceProjector
+from minicode.core.context_projection import (
+    BudgetedToolResultProjector,
+    ModelContextProjector,
+    ToolResultReferenceProjector,
+)
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
 from minicode.core.context_retrieval import RunToolResultSource
 from minicode.core.events import EventLedger
 from minicode.core.messages import Message, MessageRole
@@ -132,14 +139,30 @@ def build_coding_agent(
     max_tool_calls: int = 8,
     total_timeout_seconds: float | None = None,
     max_inline_tool_result_bytes: int | None = None,
+    budgeted_context_configuration: (
+        BudgetedContextProjectionConfiguration | None
+    ) = None,
 ) -> CodingAgent:
     """Compose the default bounded coding tools into one agent."""
     resolved_policy = build_default_coding_policy() if policy is None else policy
     registry = ToolRegistry()
-    context_projector = None
+    context_projector: ModelContextProjector | None = None
     historical_result_tool = None
+    projection_requested = (
+        max_inline_tool_result_bytes is not None
+        or budgeted_context_configuration is not None
+    )
 
-    if max_inline_tool_result_bytes is not None:
+    if (
+        max_inline_tool_result_bytes is not None
+        and budgeted_context_configuration is not None
+    ):
+        raise ValueError(
+            "max_inline_tool_result_bytes and budgeted_context_configuration "
+            "are mutually exclusive"
+        )
+
+    if projection_requested:
         if event_ledger is None:
             raise ValueError(
                 "tool-result references require an event_ledger for run binding"
@@ -150,16 +173,35 @@ def build_coding_agent(
                 "tool-result references require a checkpoint_store for retrieval"
             )
 
-        historical_result_tool = ReadToolResultTool(
-            RunToolResultSource(
-                checkpoint_store,
-                run_id=event_ledger.run_id,
+        historical_result_source = RunToolResultSource(
+            checkpoint_store,
+            run_id=event_ledger.run_id,
+        )
+
+        if budgeted_context_configuration is not None:
+            configuration = budgeted_context_configuration
+            historical_result_tool = ReadToolResultTool(
+                historical_result_source,
+                max_bytes=configuration.max_retrievable_output_bytes,
             )
-        )
-        context_projector = ToolResultReferenceProjector(
-            max_inline_output_bytes=max_inline_tool_result_bytes,
-            retrieval_tool_spec=historical_result_tool.spec,
-        )
+            context_projector = BudgetedToolResultProjector(
+                max_request_bytes=configuration.max_request_bytes,
+                retrieval_tool_spec=historical_result_tool.spec,
+                protected_recent_batch_count=(
+                    configuration.protected_recent_batch_count
+                ),
+                excluded_tool_names=configuration.excluded_tool_names,
+                max_retrievable_output_bytes=historical_result_tool.max_bytes,
+                minimum_net_savings_bytes=configuration.minimum_net_savings_bytes,
+            )
+        else:
+            assert max_inline_tool_result_bytes is not None
+            historical_result_tool = ReadToolResultTool(historical_result_source)
+            context_projector = ToolResultReferenceProjector(
+                max_inline_output_bytes=max_inline_tool_result_bytes,
+                retrieval_tool_spec=historical_result_tool.spec,
+                max_retrievable_output_bytes=historical_result_tool.max_bytes,
+            )
 
     for tool in (
         ListFilesTool(workspace),

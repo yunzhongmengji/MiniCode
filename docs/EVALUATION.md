@@ -209,6 +209,29 @@ Usage、总 Token 预算、回读失败和每条结果的 answer/trace/workspace
 v2 的历史 Preflight 结果仍必须使用 `real_model_protocol_v2.json` 汇总；上述 v3 命令只适用于
 未来单独保存的 v3 结果目录。
 
+预算投影的 schema 3 已注册 v4 协议。`evaluation_run --context-protocol ... --arm ...` 从协议直接选择 Identity
+或完整预算配置，并在 Provider 客户端创建前核对环境模型；`evaluation_result --context-protocol ...
+--context-arm ...` 再核对 Case、模型和每轮 Trace，结果保存协议 ID、Arm、实际配置及公共上下文统计。
+`before - after == saved` 仍由公共统计校验。旧 `--context-protocol-id` 和 v1～v3 继续走 schema 2 路径，
+不能与新的协议文件参数混用。
+
+同一个 `--context-preflight-protocol` 汇总入口现在会按协议 schema 分派：v1～v3 使用历史配置校验，v4 同时解析
+schema 2 baseline 和 schema 3 projection。两条 v4 结果只有在 Safe Task Success、projection activity、
+Provider Token 预算、回读、工件和协议快照全部通过时才报告 `PASS`。当前结果尚未记录可信实验序号，因此该门禁
+验证 Arm 数量，不声称验证实际执行先后。
+
+v4 已有统一编排器、单 Arm 命令适配器和批次入口。汇总器会严格交叉校验注册协议、冻结计划、追加事件、结果路径
+和结果内部 Arm，并把 `Orchestration evidence` 纳入总门禁；历史 v1～v3 不追溯要求这一新证据。批次入口为：
+
+```bash
+.venv/bin/python -m minicode.evaluation_preflight \
+  --protocol benchmarks/context_projection/real_model_protocol_v4.json \
+  --results-root /tmp/minicode-context-v4-preflight
+```
+
+结果目录必须事先不存在且位于仓库外。当前代码尚未形成干净 commit，项目仍未执行 v4 真实模型 Preflight；运行前
+还必须完成环境和 Approval 的只读就绪审计。
+
 当前未单列一个“未授权副作用计数”。所选 Coding Case 的允许改动由隐藏验收、Workspace
 状态和 Trace 契约共同判定，因此该要求已经包含在每次 Safe Task Success 中；汇总器不会在
 缺少独立证据时伪造一个副作用数字。

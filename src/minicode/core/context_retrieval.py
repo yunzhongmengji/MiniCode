@@ -1,10 +1,32 @@
 """Retrieval of original tool results from canonical conversation history."""
 
+import json
 from collections.abc import Sequence
 
 from minicode.core.checkpoints import CheckpointStore
 from minicode.core.conversation import ConversationItem
 from minicode.core.tool_calls import ToolCall, ToolResult
+
+DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES = 50_000
+
+
+def render_tool_result_reference(
+    *,
+    call_id: str,
+    original_output_bytes: int,
+) -> str:
+    """Render the stable reference understood by historical-result retrieval."""
+    return json.dumps(
+        {
+            "call_id": call_id,
+            "kind": "historical_tool_result_reference",
+            "original_output_bytes": original_output_bytes,
+            "retrieval_tool": "read_tool_result",
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 class ToolResultLookupError(LookupError):

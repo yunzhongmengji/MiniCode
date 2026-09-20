@@ -46,9 +46,9 @@ from minicode.core.model import (
     ModelUsage,
 )
 from minicode.core.tool_calls import (
-    JsonValue,
     ToolCall,
     ToolResult,
+    to_plain_json,
 )
 from minicode.tools.spec import ToolSpec
 
@@ -112,25 +112,12 @@ def tool_spec_to_openai_tool(
     }
 
 
-def _to_json_compatible_value(
-    value: JsonValue,
-) -> object:
-    """Convert frozen JSON values into built-in JSON containers."""
-    if isinstance(value, Mapping):
-        return {key: _to_json_compatible_value(item) for key, item in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_to_json_compatible_value(item) for item in value]
-
-    return value
-
-
 def _tool_call_to_openai_tool_call(
     tool_call: ToolCall,
 ) -> ChatCompletionMessageFunctionToolCallParam:
     """Convert one MiniCode tool call into OpenAI history format."""
     arguments_json = json.dumps(
-        _to_json_compatible_value(tool_call.arguments),
+        to_plain_json(tool_call.arguments),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -488,7 +475,7 @@ class OpenAICompatibleModel:
         request: ModelRequest,
     ) -> AsyncIterator[ModelStreamEvent]:
         """Stream a normalized MiniCode model request."""
-        messages = conversation_to_openai_messages(request.conversation)
+        messages = model_request_to_openai_messages(request)
         tools = [
             tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
         ]

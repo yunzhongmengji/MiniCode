@@ -13,6 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+from minicode.context_experiment_protocol import (
+    BudgetedContextExperimentProtocol,
+    load_budgeted_context_experiment_protocol,
+)
+from minicode.context_trace import ContextTraceMetrics, summarize_context_trace
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
 from minicode.core.events import EventKind, LedgerEvent
 from minicode.core.replay import RunReplay
 from minicode.core.tool_calls import JsonValue
@@ -129,20 +137,8 @@ def summarize_context_experiment(
     expected_retrieval_tool_loading = (
         None if arm is EvaluationArm.BASELINE else "on_reference"
     )
-    model_visible_bytes = 0
-    canonical_bytes = 0
-    projection_bytes_saved = 0
-    changed_tool_result_count = 0
-    model_call_count = 0
-    readback_outcomes = {
-        "succeeded": 0,
-        "failed": 0,
-        "cancelled": 0,
-    }
-
     for event in replay.events:
         if event.kind is EventKind.MODEL_CALL_STARTED:
-            context_profile = _required_event_mapping(event, "context_profile")
             projection = _required_event_mapping(event, "context_projection")
             configuration_schema_version = projection.get(
                 "configuration_schema_version"
@@ -203,53 +199,17 @@ def summarize_context_experiment(
                     f"{retrieval_tool_loading}"
                 )
 
-            visible_bytes = _required_mapping_integer(context_profile, "total_bytes")
-            before_bytes = _required_mapping_integer(
-                projection,
-                "total_bytes_before",
-            )
-            after_bytes = _required_mapping_integer(
-                projection,
-                "total_bytes_after",
-            )
-            saved_bytes = _required_mapping_integer(
-                projection,
-                "total_bytes_saved",
-            )
+    metrics = summarize_context_trace(replay.events)
 
-            if visible_bytes != after_bytes:
-                raise ValueError("model-visible bytes disagree with projection Trace")
-
-            if before_bytes - after_bytes != saved_bytes:
-                raise ValueError("projection byte difference is inconsistent")
-
-            model_call_count += 1
-            model_visible_bytes += visible_bytes
-            canonical_bytes += before_bytes
-            projection_bytes_saved += saved_bytes
-            changed_tool_result_count += _required_mapping_integer(
-                projection,
-                "changed_tool_result_count",
-            )
-
-        if (
-            event.kind is EventKind.TOOL_EXECUTION_FINISHED
-            and event.payload.get("tool_name") == "read_tool_result"
-        ):
-            outcome = event.payload.get("outcome")
-
-            if not isinstance(outcome, str) or outcome not in readback_outcomes:
-                raise ValueError("historical readback has an unknown outcome")
-
-            readback_outcomes[outcome] += 1
-
-    if model_call_count == 0:
+    if metrics.model_call_count == 0:
         raise ValueError("context experiment Trace has no model calls")
 
     if arm is EvaluationArm.BASELINE and (
-        projection_bytes_saved != 0
-        or changed_tool_result_count != 0
-        or any(readback_outcomes.values())
+        metrics.projection_bytes_saved != 0
+        or metrics.changed_tool_result_count != 0
+        or metrics.successful_readback_count != 0
+        or metrics.failed_readback_count != 0
+        or metrics.cancelled_readback_count != 0
     ):
         raise ValueError("baseline Trace contains projection or readback activity")
 
@@ -264,16 +224,145 @@ def summarize_context_experiment(
             "minimum_net_savings_bytes": expected_minimum_net_savings,
             "retrieval_tool_loading": expected_retrieval_tool_loading,
         },
-        "metrics": {
-            "model_call_count": model_call_count,
-            "model_visible_bytes": model_visible_bytes,
-            "canonical_bytes": canonical_bytes,
-            "projection_bytes_saved": projection_bytes_saved,
-            "changed_tool_result_count": changed_tool_result_count,
-            "successful_readback_count": readback_outcomes["succeeded"],
-            "failed_readback_count": readback_outcomes["failed"],
-            "cancelled_readback_count": readback_outcomes["cancelled"],
-        },
+        "metrics": _context_metrics_payload(metrics),
+    }
+
+
+def summarize_budgeted_context_experiment(
+    replay: RunReplay,
+    *,
+    protocol_id: str,
+    expected_configuration: BudgetedContextProjectionConfiguration,
+) -> dict[str, object]:
+    """Validate one schema-three projection Trace without changing v3 rules."""
+    if not isinstance(protocol_id, str):
+        raise TypeError("context protocol_id must be a string")
+
+    if not protocol_id.strip():
+        raise ValueError("context protocol_id must not be blank")
+
+    if not isinstance(
+        expected_configuration,
+        BudgetedContextProjectionConfiguration,
+    ):
+        raise TypeError(
+            "expected_configuration must be a "
+            "BudgetedContextProjectionConfiguration"
+        )
+
+    recorded_configuration: BudgetedContextProjectionConfiguration | None = None
+
+    for event in replay.events:
+        if event.kind is not EventKind.MODEL_CALL_STARTED:
+            continue
+
+        projection = _required_event_mapping(event, "context_projection")
+        current_configuration = _budgeted_configuration_from_trace(projection)
+
+        if (
+            recorded_configuration is not None
+            and current_configuration != recorded_configuration
+        ):
+            raise ValueError(
+                "budgeted context Trace configuration changed between model calls"
+            )
+
+        if current_configuration != expected_configuration:
+            raise ValueError(
+                "budgeted context Trace configuration disagrees with the "
+                "registered protocol"
+            )
+
+        recorded_configuration = current_configuration
+
+    metrics = summarize_context_trace(replay.events)
+
+    if metrics.model_call_count == 0:
+        raise ValueError("context experiment Trace has no model calls")
+
+    return {
+        "protocol_id": protocol_id,
+        "arm": EvaluationArm.PROJECTION,
+        "max_request_bytes": expected_configuration.max_request_bytes,
+        "trace_configuration": expected_configuration.to_payload(),
+        "metrics": _context_metrics_payload(metrics),
+    }
+
+
+def summarize_registered_context_experiment(
+    replay: RunReplay,
+    *,
+    protocol: BudgetedContextExperimentProtocol,
+    arm: EvaluationArm,
+    case_id: str,
+    model: str,
+) -> dict[str, object]:
+    """Validate one run against the complete pre-registered v4 protocol."""
+    if case_id not in protocol.cases:
+        raise ValueError(
+            f"case {case_id} is not registered by protocol {protocol.protocol_id}"
+        )
+
+    if model != protocol.model.name:
+        raise ValueError(
+            "result model does not match the registered context protocol"
+        )
+
+    if arm is EvaluationArm.BASELINE:
+        return summarize_context_experiment(
+            replay,
+            protocol_id=protocol.protocol_id,
+            arm=arm,
+        )
+
+    return summarize_budgeted_context_experiment(
+        replay,
+        protocol_id=protocol.protocol_id,
+        expected_configuration=protocol.projection_configuration,
+    )
+
+
+def _budgeted_configuration_from_trace(
+    projection: Mapping[str, object],
+) -> BudgetedContextProjectionConfiguration:
+    configuration_fields = (
+        "configuration_schema_version",
+        "strategy",
+        "max_request_bytes",
+        "protected_recent_batch_count",
+        "minimum_net_savings_bytes",
+        "excluded_tool_names",
+        "max_retrievable_output_bytes",
+        "retrieval_tool_loading",
+    )
+    missing_fields = tuple(
+        field for field in configuration_fields if field not in projection
+    )
+
+    if missing_fields:
+        raise ValueError(
+            "budgeted context projection configuration is missing fields: "
+            + ", ".join(missing_fields)
+        )
+
+    configuration_payload = {
+        field: projection[field] for field in configuration_fields
+    }
+    return BudgetedContextProjectionConfiguration.from_payload(
+        configuration_payload
+    )
+
+
+def _context_metrics_payload(metrics: ContextTraceMetrics) -> dict[str, int]:
+    return {
+        "model_call_count": metrics.model_call_count,
+        "model_visible_bytes": metrics.model_visible_bytes,
+        "canonical_bytes": metrics.canonical_bytes,
+        "projection_bytes_saved": metrics.projection_bytes_saved,
+        "changed_tool_result_count": metrics.changed_tool_result_count,
+        "successful_readback_count": metrics.successful_readback_count,
+        "failed_readback_count": metrics.failed_readback_count,
+        "cancelled_readback_count": metrics.cancelled_readback_count,
     }
 
 
@@ -331,6 +420,7 @@ def record_result(
     agent_exit_code: int,
     context_protocol_id: str | None = None,
     context_arm: EvaluationArm | None = None,
+    registered_context_protocol: BudgetedContextExperimentProtocol | None = None,
 ) -> bool:
     """Run acceptance and write one non-overwriting result document."""
     resolved_case_root = case_root.resolve(strict=True)
@@ -343,8 +433,18 @@ def record_result(
     if not model.strip():
         raise ValueError("model must not be blank")
 
-    if (context_protocol_id is None) != (context_arm is None):
-        raise ValueError("context protocol_id and arm must be provided together")
+    if context_protocol_id is not None and registered_context_protocol is not None:
+        raise ValueError(
+            "context protocol_id and registered_context_protocol are mutually "
+            "exclusive"
+        )
+
+    has_context_protocol = (
+        context_protocol_id is not None or registered_context_protocol is not None
+    )
+
+    if has_context_protocol != (context_arm is not None):
+        raise ValueError("one context protocol and arm must be provided together")
 
     if resolved_answer.parent != resolved_output.parent:
         raise ValueError("answer and result JSON must share one directory")
@@ -363,15 +463,24 @@ def record_result(
 
     trace = resolved_trace.read_text(encoding="utf-8")
     replay = parse_trace(trace)
-    context_experiment = (
-        summarize_context_experiment(
+    if registered_context_protocol is not None:
+        assert context_arm is not None
+        context_experiment = summarize_registered_context_experiment(
+            replay,
+            protocol=registered_context_protocol,
+            arm=context_arm,
+            case_id=case_manifest.case_id,
+            model=model,
+        )
+    elif context_protocol_id is not None:
+        assert context_arm is not None
+        context_experiment = summarize_context_experiment(
             replay,
             protocol_id=context_protocol_id,
             arm=context_arm,
         )
-        if context_protocol_id is not None and context_arm is not None
-        else None
-    )
+    else:
+        context_experiment = None
     trace_evaluation = evaluate_trace_expectations(
         replay=replay,
         expectations=case_manifest.trace_expectations,
@@ -634,7 +743,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--agent-exit-code", type=int, required=True)
-    parser.add_argument("--context-protocol-id")
+    context_protocol = parser.add_mutually_exclusive_group()
+    context_protocol.add_argument("--context-protocol-id")
+    context_protocol.add_argument("--context-protocol", type=Path)
     parser.add_argument(
         "--context-arm", type=EvaluationArm, choices=tuple(EvaluationArm)
     )
@@ -646,10 +757,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if (args.context_protocol_id is None) != (args.context_arm is None):
+    has_context_protocol = (
+        args.context_protocol_id is not None or args.context_protocol is not None
+    )
+
+    if has_context_protocol != (args.context_arm is not None):
         parser.error(
-            "--context-protocol-id and --context-arm must be provided together"
+            "one context protocol option and --context-arm must be provided together"
         )
+
+    registered_protocol = (
+        load_budgeted_context_experiment_protocol(args.context_protocol)
+        if args.context_protocol is not None
+        else None
+    )
 
     accepted = record_result(
         case_root=args.case_root,
@@ -661,6 +782,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         agent_exit_code=args.agent_exit_code,
         context_protocol_id=args.context_protocol_id,
         context_arm=args.context_arm,
+        registered_context_protocol=registered_protocol,
     )
     print(f"{'PASS' if accepted else 'FAIL'} {args.case_root.name}: {args.output}")
     return 0 if accepted else 1

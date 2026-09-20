@@ -71,6 +71,17 @@ Checkpoint 中已经消耗的数量不会在恢复时清零。
 
 系统指令只要求在复杂修改或多文件修改后使用 `git_diff`。单文件精确替换可以直接运行相关测试，避免为了形式上的复核增加不必要的模型轮次和上下文；模型仍可在任何存在改动范围疑问的任务中主动调用它。
 
+### 可选的历史工具结果投影
+
+`build_coding_agent()` 默认不压缩上下文。调用方可以选择旧的单结果阈值，或者传入 schema 3 的
+`BudgetedContextProjectionConfiguration`；两种模式互斥。任一模式都会强制要求同一 Run 的
+EventLedger 和 CheckpointStore，并据此组装 `RunToolResultSource`、`ReadToolResultTool` 和 Dispatcher 注册。
+
+`read_tool_result` 平时不出现在模型 Tool Spec 中；只有某轮真的把完整 ToolResult 换成引用时，projector 才
+把它加入该轮请求。工具本身已经预先注册在 Dispatcher，因此模型只要看得到 Tool Spec，就存在对应执行路径。
+预算配置的 `max_retrievable_output_bytes` 同时用于 projector 候选判断和 `ReadToolResultTool.max_bytes`，不能
+出现“允许生成引用，却无法完整回读”的容量漂移。CLI 目前尚未开放预算模式。
+
 ## 3. 文件结果的来源标记
 
 `read_file` 返回自描述结果：

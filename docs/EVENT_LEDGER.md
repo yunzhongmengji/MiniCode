@@ -110,10 +110,15 @@ LedgerEvent(
 canonical request 与模型视图，记录 ToolResult 变化数量、投影前后 ToolResult/总字节及
 二者差值，同时记录稳定的 `strategy` 和 `max_inline_tool_result_bytes` 配置。配置字段用于
 区分“启用了投影但本轮没有命中”和“使用 Identity”；不能只凭节省值是否为 0 猜测 Arm。
-新版配置还记录 `configuration_schema_version=2`、`minimum_net_savings_bytes` 和
+旧阈值配置还记录 `configuration_schema_version=2`、`minimum_net_savings_bytes` 和
 `retrieval_tool_loading`。投影 Arm 的后两项分别为 `1` 和 `on_reference`，意思是完整请求
 至少净减少 1 byte 才采用引用，并且只在引用实际出现的请求中暴露回读 Tool Spec；Identity
 对应 `null`。结果记录器会逐轮核对这些事实，不能只在实验命令中声称采用了新策略。
+
+预算投影使用 `configuration_schema_version=3` 和
+`strategy=budgeted_tool_result_reference`，额外记录整个请求预算、最近保护批数、排除工具、完整回读上限和
+最低净收益。QueryLoop 已能把 schema 3 配置与本轮实际投影测量写进同一个事件；CLI 和正式评测协议尚未启用
+该策略。
 Identity Projector 的差值为 0。这里仍是规范化 JSON 的 UTF-8 byte，不是供应商 Token。
 历史回读次数不重复增加专用计数器，可按 `TOOL_EXECUTION_FINISHED` 中
 `tool_name == "read_tool_result"` 和 outcome 汇总。

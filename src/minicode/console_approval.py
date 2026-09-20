@@ -3,22 +3,9 @@
 import asyncio
 import json
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 
-from minicode.core.tool_calls import JsonValue, ToolCall
-
-
-def _to_json_output(
-    value: JsonValue,
-) -> object:
-    """Convert frozen tool arguments into JSON containers."""
-    if isinstance(value, Mapping):
-        return {key: _to_json_output(item) for key, item in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_to_json_output(item) for item in value]
-
-    return value
+from minicode.core.tool_calls import ToolCall, to_plain_json
 
 
 class ConsoleToolApprover:
@@ -39,7 +26,7 @@ class ConsoleToolApprover:
     ) -> bool:
         """Approve only an explicit y or yes response."""
         rendered_arguments = json.dumps(
-            _to_json_output(tool_call.arguments),
+            to_plain_json(tool_call.arguments),
             ensure_ascii=False,
             sort_keys=True,
         )

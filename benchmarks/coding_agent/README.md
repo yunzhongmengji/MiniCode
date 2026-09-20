@@ -107,6 +107,29 @@ model_name="${DASHSCOPE_MODEL:-qwen3.7-flash-2026-07-15}"
 为 projection 但 Trace 实际为 identity（反之亦然）时拒绝生成结果。普通非实验结果可省略
 这两个参数，但二者不能只提供一个。
 
+预算驱动的 v4 不再手写协议 ID 或压缩参数。运行和记录阶段都传同一个协议文件：
+
+```bash
+"$project_root/.venv/bin/python" -m minicode.evaluation_run \
+  --case-root "$case_root" \
+  --context-protocol "$project_root/benchmarks/context_projection/real_model_protocol_v4.json" \
+  --arm projection
+
+"$project_root/.venv/bin/python" -m minicode.evaluation_result \
+  --case-root "$case_root" \
+  --workspace "$evaluation_workspace" \
+  --answer "$result_directory/answer.txt" \
+  --trace "$result_directory/trace.txt" \
+  --output "$result_directory/result.json" \
+  --model "$model_name" \
+  --agent-exit-code "$agent_exit_code" \
+  --context-protocol "$project_root/benchmarks/context_projection/real_model_protocol_v4.json" \
+  --context-arm projection
+```
+
+运行器从协议选择 Identity 或完整 schema 3 配置，并在创建 Provider 客户端前核对实际模型名；记录器再次核对
+Case、模型和逐轮 Trace。`--context-protocol-id` 保留给 v1～v3，不能与新的协议文件参数同时使用。
+
 成功时输出：
 
 ```text
@@ -152,3 +175,16 @@ PASS <case_name>: /tmp/.../result.json
 不要把 `preflight/` 放到 `formal/` 下面。该汇总会检查每个 Case/Arm 的重复次数、不同 Run ID、
 Safe Task Success、input Token 对比、逐 Case 退化和回读失败；协议、模型、阈值或 commit 混杂
 会直接拒绝，而不是生成一个看似可比较的平均数。
+
+预算上下文 v4 的两次 Preflight 不再手工分别启动。完成只读就绪审计、形成干净 commit 并得到付费运行授权后，
+使用唯一批次入口：
+
+```bash
+.venv/bin/python -m minicode.evaluation_preflight \
+  --protocol benchmarks/context_projection/real_model_protocol_v4.json \
+  --results-root /tmp/minicode-context-v4-preflight
+```
+
+`--results-root` 必须位于仓库外且事先不存在。命令严格按 baseline → projection 运行，前一组失败就停止；成功后
+自动核对协议快照、计划、事件、固定结果路径、结果内部 Arm 和原有任务/Token/回读门禁。不能绕过该入口手工补跑
+第二组，也不能把离线假执行器测试称作真实模型结果。

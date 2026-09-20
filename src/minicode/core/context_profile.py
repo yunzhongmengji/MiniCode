@@ -1,12 +1,12 @@
 """Provider-neutral measurements for one model request."""
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from minicode.core.messages import Message
 from minicode.core.model import ModelRequest
-from minicode.core.tool_calls import JsonValue, ToolCall, ToolResult
+from minicode.core.tool_calls import ToolCall, ToolResult, to_plain_json
 from minicode.tools.spec import ToolSpec
 
 
@@ -144,7 +144,7 @@ def _tool_call_document(tool_call: ToolCall) -> dict[str, object]:
     return {
         "call_id": tool_call.call_id,
         "name": tool_call.name,
-        "arguments": _plain_json(tool_call.arguments),
+        "arguments": to_plain_json(tool_call.arguments),
     }
 
 
@@ -155,17 +155,6 @@ def _tool_spec_document(tool_spec: ToolSpec) -> dict[str, object]:
         "description": tool_spec.description,
         "parameters": tool_spec.arguments_type.model_json_schema(),
     }
-
-
-def _plain_json(value: JsonValue) -> object:
-    """Convert frozen JSON containers into serializable built-ins."""
-    if isinstance(value, Mapping):
-        return {key: _plain_json(item) for key, item in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_plain_json(item) for item in value]
-
-    return value
 
 
 def _sequence_bytes(values: Sequence[object]) -> int:

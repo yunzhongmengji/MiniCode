@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from minicode.coding_agent import build_coding_agent
+from minicode.context_trace import summarize_context_trace
 from minicode.core.checkpoints import InMemoryCheckpointStore, RunCheckpoint
 from minicode.core.events import EventKind, InMemoryEventLedger, LedgerEvent
 from minicode.core.model import ModelRequest, ModelResponse
@@ -401,67 +402,29 @@ def summarize_context_events(
     if not replay.is_finished or replay.outcome is None:
         raise ValueError("context comparison requires a finished event stream")
 
-    model_visible_bytes = 0
-    canonical_bytes = 0
-    projection_bytes_saved = 0
+    context_metrics = summarize_context_trace(replay.events)
     tool_result_bytes_saved = 0
-    changed_tool_result_count = 0
-    readback_outcomes = {
-        "succeeded": 0,
-        "failed": 0,
-        "cancelled": 0,
-    }
 
     for event in replay.events:
         if event.kind is EventKind.MODEL_CALL_STARTED:
-            context_profile = _required_mapping(event.payload, "context_profile")
             projection = _required_mapping(event.payload, "context_projection")
-            visible_bytes = _required_integer(context_profile, "total_bytes")
-            projected_after = _required_integer(projection, "total_bytes_after")
-            projected_before = _required_integer(projection, "total_bytes_before")
-            projected_saved = _required_integer(projection, "total_bytes_saved")
-
-            if visible_bytes != projected_after:
-                raise ValueError("model-visible bytes disagree with projection profile")
-
-            if projected_before - projected_after != projected_saved:
-                raise ValueError("projection byte difference is inconsistent")
-
-            model_visible_bytes += visible_bytes
-            canonical_bytes += projected_before
-            projection_bytes_saved += projected_saved
             tool_result_bytes_saved += _required_integer(
                 projection,
                 "tool_result_bytes_saved",
             )
-            changed_tool_result_count += _required_integer(
-                projection,
-                "changed_tool_result_count",
-            )
-
-        if (
-            event.kind is EventKind.TOOL_EXECUTION_FINISHED
-            and event.payload.get("tool_name") == "read_tool_result"
-        ):
-            outcome = event.payload.get("outcome")
-
-            if not isinstance(outcome, str) or outcome not in readback_outcomes:
-                raise ValueError("historical readback has an unknown outcome")
-
-            readback_outcomes[outcome] += 1
 
     return ContextRunMetrics(
         run_outcome=replay.outcome,
-        model_call_count=replay.model_call_count,
+        model_call_count=context_metrics.model_call_count,
         tool_execution_count=replay.tool_execution_count,
-        model_visible_bytes=model_visible_bytes,
-        canonical_bytes=canonical_bytes,
-        projection_bytes_saved=projection_bytes_saved,
+        model_visible_bytes=context_metrics.model_visible_bytes,
+        canonical_bytes=context_metrics.canonical_bytes,
+        projection_bytes_saved=context_metrics.projection_bytes_saved,
         tool_result_bytes_saved=tool_result_bytes_saved,
-        changed_tool_result_count=changed_tool_result_count,
-        successful_readback_count=readback_outcomes["succeeded"],
-        failed_readback_count=readback_outcomes["failed"],
-        cancelled_readback_count=readback_outcomes["cancelled"],
+        changed_tool_result_count=context_metrics.changed_tool_result_count,
+        successful_readback_count=context_metrics.successful_readback_count,
+        failed_readback_count=context_metrics.failed_readback_count,
+        cancelled_readback_count=context_metrics.cancelled_readback_count,
     )
 
 

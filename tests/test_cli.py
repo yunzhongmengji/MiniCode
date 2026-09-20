@@ -2,6 +2,9 @@ import pytest
 
 from minicode import cli
 from minicode.core.checkpoints import RunCheckpoint
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
 from minicode.core.events import EventKind, InMemoryEventLedger
 from minicode.core.file_checkpoint_store import FileCheckpointStore
 from minicode.core.messages import Message, MessageRole
@@ -35,7 +38,11 @@ def test_run_executes_coding_task_and_prints_trace(monkeypatch, capsys) -> None:
         event_ledger,
         artifact_store,
         max_inline_tool_result_bytes: int | None,
+        budgeted_context_configuration,
+        expected_model,
     ) -> RunResult:
+        assert budgeted_context_configuration is None
+        assert expected_model is None
         received_calls.append(
             (
                 starting_input,
@@ -124,6 +131,8 @@ def test_run_reports_model_failure_with_trace(
         event_ledger,
         artifact_store,
         max_inline_tool_result_bytes: int | None,
+        budgeted_context_configuration,
+        expected_model,
     ) -> RunResult:
         del (
             starting_input,
@@ -131,6 +140,8 @@ def test_run_reports_model_failure_with_trace(
             max_tool_calls,
             artifact_store,
             max_inline_tool_result_bytes,
+            budgeted_context_configuration,
+            expected_model,
         )
         event_ledger.record(
             EventKind.RUN_STARTED,
@@ -198,9 +209,13 @@ def test_resume_loads_workspace_checkpoint_and_reuses_run_id(
         event_ledger,
         artifact_store,
         max_inline_tool_result_bytes: int | None,
+        budgeted_context_configuration,
+        expected_model,
     ) -> RunResult:
         received_inputs.append(starting_input)
         assert max_inline_tool_result_bytes is None
+        assert budgeted_context_configuration is None
+        assert expected_model is None
         assert max_turns == 4
         assert max_tool_calls == 5
         assert event_ledger.run_id == "run_001"
@@ -430,6 +445,89 @@ async def test_execute_coding_task_applies_benchmark_projection_threshold(
     }
     assert "read_tool_result" not in baseline_tool_names
     assert projected_tool_names == baseline_tool_names
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_applies_registered_budget_configuration(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class RecordingClient:
+        async def close(self) -> None:
+            return None
+
+    class RecordingAgent:
+        async def run(self, task: str) -> RunResult:
+            return RunResult(
+                stop_reason=StopReason.COMPLETED,
+                response=ModelResponse(content="complete"),
+                message_history=(
+                    Message(role=MessageRole.USER, content=task),
+                ),
+                turns_used=1,
+            )
+
+    configuration = BudgetedContextProjectionConfiguration(
+        max_request_bytes=10_000,
+        protected_recent_batch_count=2,
+        minimum_net_savings_bytes=1,
+        excluded_tool_names=("git_diff", "run_tests"),
+        max_retrievable_output_bytes=50_000,
+    )
+    received_options = {}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(cli, "build_dashscope_client", lambda config: RecordingClient())
+    monkeypatch.setattr(
+        cli,
+        "build_dashscope_model",
+        lambda config, *, client: object(),
+    )
+
+    def build_agent(**options):
+        received_options.update(options)
+        return RecordingAgent()
+
+    monkeypatch.setattr(cli, "build_coding_agent", build_agent)
+
+    await cli._execute_coding_task(
+        "Complete the registered run.",
+        max_turns=1,
+        max_tool_calls=1,
+        event_ledger=InMemoryEventLedger(run_id="run_registered"),
+        budgeted_context_configuration=configuration,
+        expected_model="qwen3.7-flash-2026-07-15",
+    )
+
+    assert received_options["max_inline_tool_result_bytes"] is None
+    assert received_options["budgeted_context_configuration"] == configuration
+
+
+@pytest.mark.asyncio
+async def test_execute_coding_task_rejects_registered_model_drift_before_client(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setenv("DASHSCOPE_MODEL", "different-model")
+
+    def unexpected_client(config):
+        pytest.fail("model drift must be rejected before creating a client")
+
+    monkeypatch.setattr(cli, "build_dashscope_client", unexpected_client)
+
+    with pytest.raises(
+        cli._CliConfigurationError,
+        match="configured model does not match the registered experiment",
+    ):
+        await cli._execute_coding_task(
+            "Do not run.",
+            max_turns=1,
+            max_tool_calls=1,
+            event_ledger=InMemoryEventLedger(run_id="run_model_drift"),
+            expected_model="qwen3.7-flash-2026-07-15",
+        )
 
 
 @pytest.mark.asyncio

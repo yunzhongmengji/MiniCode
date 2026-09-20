@@ -19,11 +19,14 @@ from minicode.core.artifacts import (
     InMemoryArtifactStore,
 )
 from minicode.core.checkpoints import RunCheckpoint
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
 from minicode.core.events import EventLedger, InMemoryEventLedger
 from minicode.core.file_checkpoint_store import FileCheckpointStore
 from minicode.core.model import ModelError
 from minicode.core.query_loop import RunResult, StopReason
-from minicode.core.tool_calls import JsonValue
+from minicode.core.tool_calls import to_plain_json
 from minicode.models.dashscope import (
     DashScopeConfig,
     build_dashscope_client,
@@ -49,12 +52,22 @@ async def _execute_coding_task(
     event_ledger: EventLedger,
     artifact_store: ArtifactStore | None = None,
     max_inline_tool_result_bytes: int | None = None,
+    budgeted_context_configuration: (
+        BudgetedContextProjectionConfiguration | None
+    ) = None,
+    expected_model: str | None = None,
 ) -> RunResult:
     """Compose and execute one fresh or resumed coding task."""
     try:
         config = DashScopeConfig.from_environment(os.environ)
     except ValueError as error:
         raise _CliConfigurationError(str(error)) from error
+
+    if expected_model is not None and config.model != expected_model:
+        raise _CliConfigurationError(
+            "configured model does not match the registered experiment: "
+            f"expected {expected_model}, got {config.model}"
+        )
 
     client = build_dashscope_client(config)
 
@@ -83,6 +96,7 @@ async def _execute_coding_task(
             max_turns=max_turns,
             max_tool_calls=max_tool_calls,
             max_inline_tool_result_bytes=max_inline_tool_result_bytes,
+            budgeted_context_configuration=budgeted_context_configuration,
         )
 
         if isinstance(starting_input, RunCheckpoint):
@@ -143,19 +157,6 @@ def _load_checkpoint(
     return checkpoint
 
 
-def _to_json_output(
-    value: JsonValue,
-) -> object:
-    """Convert frozen event data into JSON-serializable containers."""
-    if isinstance(value, Mapping):
-        return {key: _to_json_output(item) for key, item in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_to_json_output(item) for item in value]
-
-    return value
-
-
 def _print_trace(
     event_ledger: InMemoryEventLedger,
 ) -> None:
@@ -167,7 +168,7 @@ def _print_trace(
 
     for event in event_ledger.events:
         payload = json.dumps(
-            _to_json_output(event.payload),
+            to_plain_json(event.payload),
             ensure_ascii=False,
             sort_keys=True,
         )
@@ -266,6 +267,10 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     max_inline_tool_result_bytes: int | None = None,
+    budgeted_context_configuration: (
+        BudgetedContextProjectionConfiguration | None
+    ) = None,
+    expected_model: str | None = None,
 ) -> int:
     """Run the MiniCode command-line interface."""
     parser = build_parser()
@@ -325,6 +330,10 @@ def main(
                     event_ledger=event_ledger,
                     artifact_store=artifact_store,
                     max_inline_tool_result_bytes=max_inline_tool_result_bytes,
+                    budgeted_context_configuration=(
+                        budgeted_context_configuration
+                    ),
+                    expected_model=expected_model,
                 )
             )
         except _CliConfigurationError as error:

@@ -1,50 +1,29 @@
 """Projection boundary between canonical state and model-visible context."""
 
-import json
-from dataclasses import dataclass
-from enum import StrEnum
+from collections.abc import Collection
 from typing import Protocol
 
+from minicode.core.context_editing import (
+    apply_context_editing_plan,
+    plan_context_editing,
+)
 from minicode.core.context_profile import profile_context_projection
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+    ContextProjectionConfiguration,
+    ContextProjectionStrategy,
+    RetrievalToolLoading,
+    normalize_excluded_tool_names,
+)
 from minicode.core.context_retention import plan_tool_result_retention
+from minicode.core.context_retrieval import (
+    DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
+    render_tool_result_reference,
+)
 from minicode.core.conversation import ConversationItem
 from minicode.core.model import ModelRequest
 from minicode.core.tool_calls import ToolResult
 from minicode.tools.spec import ToolSpec
-
-
-class ContextProjectionStrategy(StrEnum):
-    """Stable names for model-context projection behavior."""
-
-    IDENTITY = "identity"
-    TOOL_RESULT_REFERENCE = "tool_result_reference"
-    CUSTOM = "custom"
-
-
-class RetrievalToolLoading(StrEnum):
-    """Stable names for when a projector exposes its retrieval tool."""
-
-    ON_REFERENCE = "on_reference"
-
-
-@dataclass(frozen=True, slots=True)
-class ContextProjectionConfiguration:
-    """Trace-visible configuration of one context projector."""
-
-    strategy: ContextProjectionStrategy
-    max_inline_tool_result_bytes: int | None
-    minimum_net_savings_bytes: int | None
-    retrieval_tool_loading: RetrievalToolLoading | None
-
-    def to_payload(self) -> dict[str, str | int | None]:
-        """Return a JSON-compatible configuration document."""
-        return {
-            "configuration_schema_version": 2,
-            "strategy": self.strategy,
-            "max_inline_tool_result_bytes": self.max_inline_tool_result_bytes,
-            "minimum_net_savings_bytes": self.minimum_net_savings_bytes,
-            "retrieval_tool_loading": self.retrieval_tool_loading,
-        }
 
 
 class ModelContextProjector(Protocol):
@@ -63,6 +42,62 @@ class IdentityModelContextProjector:
         return request
 
 
+class BudgetedToolResultProjector:
+    """Apply the pure editing plan behind an experimental projection boundary."""
+
+    def __init__(
+        self,
+        *,
+        max_request_bytes: int,
+        retrieval_tool_spec: ToolSpec,
+        protected_recent_batch_count: int = 1,
+        excluded_tool_names: Collection[str] = frozenset(),
+        max_retrievable_output_bytes: int = DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
+        minimum_net_savings_bytes: int = 1,
+    ) -> None:
+        if not isinstance(retrieval_tool_spec, ToolSpec):
+            raise TypeError("retrieval_tool_spec must be a ToolSpec")
+
+        if retrieval_tool_spec.name != "read_tool_result":
+            raise ValueError("retrieval_tool_spec must describe read_tool_result")
+
+        self._configuration = BudgetedContextProjectionConfiguration(
+            max_request_bytes=max_request_bytes,
+            protected_recent_batch_count=protected_recent_batch_count,
+            minimum_net_savings_bytes=minimum_net_savings_bytes,
+            excluded_tool_names=normalize_excluded_tool_names(excluded_tool_names),
+            max_retrievable_output_bytes=max_retrievable_output_bytes,
+        )
+        self._retrieval_tool_spec = retrieval_tool_spec
+
+    @property
+    def configuration(self) -> BudgetedContextProjectionConfiguration:
+        """Return the complete experimental configuration contract."""
+        return self._configuration
+
+    async def project(self, request: ModelRequest) -> ModelRequest:
+        """Plan and materialize one budget-driven model-visible request."""
+        configuration = self._configuration
+        plan = plan_context_editing(
+            request,
+            max_request_bytes=configuration.max_request_bytes,
+            retrieval_tool_spec=self._retrieval_tool_spec,
+            protected_recent_batch_count=(
+                configuration.protected_recent_batch_count
+            ),
+            excluded_tool_names=configuration.excluded_tool_names,
+            max_retrievable_output_bytes=(
+                configuration.max_retrievable_output_bytes
+            ),
+            minimum_net_savings_bytes=configuration.minimum_net_savings_bytes,
+        )
+        return apply_context_editing_plan(
+            request,
+            plan,
+            retrieval_tool_spec=self._retrieval_tool_spec,
+        )
+
+
 class ToolResultReferenceProjector:
     """Replace eligible oversized tool outputs with retrievable references."""
 
@@ -71,6 +106,8 @@ class ToolResultReferenceProjector:
         *,
         max_inline_output_bytes: int,
         retrieval_tool_spec: ToolSpec,
+        protected_recent_tool_result_batches: int = 1,
+        max_retrievable_output_bytes: int = DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
     ) -> None:
         if isinstance(max_inline_output_bytes, bool) or not isinstance(
             max_inline_output_bytes,
@@ -87,8 +124,30 @@ class ToolResultReferenceProjector:
         if retrieval_tool_spec.name != "read_tool_result":
             raise ValueError("retrieval_tool_spec must describe read_tool_result")
 
+        if isinstance(protected_recent_tool_result_batches, bool) or not isinstance(
+            protected_recent_tool_result_batches, int
+        ):
+            raise TypeError("protected_recent_tool_result_batches must be an integer")
+
+        if protected_recent_tool_result_batches <= 0:
+            raise ValueError(
+                "protected_recent_tool_result_batches must be greater than zero"
+            )
+
+        if isinstance(max_retrievable_output_bytes, bool) or not isinstance(
+            max_retrievable_output_bytes, int
+        ):
+            raise TypeError("max_retrievable_output_bytes must be an integer")
+
+        if max_retrievable_output_bytes <= 0:
+            raise ValueError("max_retrievable_output_bytes must be greater than zero")
+
         self._max_inline_output_bytes = max_inline_output_bytes
         self._retrieval_tool_spec = retrieval_tool_spec
+        self._protected_recent_tool_result_batches = (
+            protected_recent_tool_result_batches
+        )
+        self._max_retrievable_output_bytes = max_retrievable_output_bytes
 
     @property
     def max_inline_output_bytes(self) -> int:
@@ -105,9 +164,23 @@ class ToolResultReferenceProjector:
         """Return when the historical-result retrieval tool becomes visible."""
         return RetrievalToolLoading.ON_REFERENCE
 
+    @property
+    def protected_recent_tool_result_batches(self) -> int:
+        """Return how many newest result batches remain complete."""
+        return self._protected_recent_tool_result_batches
+
+    @property
+    def max_retrievable_output_bytes(self) -> int:
+        """Return the largest result that may safely become a reference."""
+        return self._max_retrievable_output_bytes
+
     async def project(self, request: ModelRequest) -> ModelRequest:
         """Reference results only when the complete request becomes smaller."""
-        retention = plan_tool_result_retention(request.conversation)
+        retention = plan_tool_result_retention(
+            request.conversation,
+            protected_recent_batch_count=(self._protected_recent_tool_result_batches),
+            max_retrievable_output_bytes=self._max_retrievable_output_bytes,
+        )
         eligible_call_ids = frozenset(retention.eligible_call_ids)
         projected_conversation: list[ConversationItem] = []
         changed = False
@@ -126,7 +199,7 @@ class ToolResultReferenceProjector:
                 projected_conversation.append(item)
                 continue
 
-            reference = _render_tool_result_reference(
+            reference = render_tool_result_reference(
                 call_id=item.call_id,
                 original_output_bytes=original_bytes,
             )
@@ -163,7 +236,7 @@ class ToolResultReferenceProjector:
 
 def describe_context_projector(
     projector: ModelContextProjector,
-) -> ContextProjectionConfiguration:
+) -> ContextProjectionConfiguration | BudgetedContextProjectionConfiguration:
     """Return stable trace metadata for a context projector."""
     if isinstance(projector, IdentityModelContextProjector):
         return ContextProjectionConfiguration(
@@ -173,7 +246,25 @@ def describe_context_projector(
             retrieval_tool_loading=None,
         )
 
+    if isinstance(projector, BudgetedToolResultProjector):
+        return projector.configuration
+
     if isinstance(projector, ToolResultReferenceProjector):
+        if projector.protected_recent_tool_result_batches != 1:
+            raise ValueError(
+                "non-default tool-result retention is experimental and cannot "
+                "enter the traced QueryLoop"
+            )
+
+        if (
+            projector.max_retrievable_output_bytes
+            != DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES
+        ):
+            raise ValueError(
+                "non-default tool-result retrieval capacity is experimental and "
+                "cannot enter the traced QueryLoop"
+            )
+
         return ContextProjectionConfiguration(
             strategy=ContextProjectionStrategy.TOOL_RESULT_REFERENCE,
             max_inline_tool_result_bytes=projector.max_inline_output_bytes,
@@ -186,23 +277,4 @@ def describe_context_projector(
         max_inline_tool_result_bytes=None,
         minimum_net_savings_bytes=None,
         retrieval_tool_loading=None,
-    )
-
-
-def _render_tool_result_reference(
-    *,
-    call_id: str,
-    original_output_bytes: int,
-) -> str:
-    """Render an unambiguous reference understood by the retrieval tool."""
-    return json.dumps(
-        {
-            "call_id": call_id,
-            "kind": "historical_tool_result_reference",
-            "original_output_bytes": original_output_bytes,
-            "retrieval_tool": "read_tool_result",
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
     )

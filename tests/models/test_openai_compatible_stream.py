@@ -337,6 +337,7 @@ async def test_openai_compatible_model_streams_text_request() -> None:
                 content="Complete the task.",
             ),
         ),
+        instructions=("Follow the project instructions.",),
     )
 
     events = [event async for event in model.stream(request)]
@@ -357,6 +358,10 @@ async def test_openai_compatible_model_streams_text_request() -> None:
     create_completion.assert_awaited_once_with(
         model="qwen3.7-flash-2026-07-15",
         messages=[
+            {
+                "role": "system",
+                "content": "Follow the project instructions.",
+            },
             {
                 "role": "user",
                 "content": "Complete the task.",

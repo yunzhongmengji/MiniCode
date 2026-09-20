@@ -10,6 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from minicode.context_experiment_protocol import (
+    load_budgeted_context_experiment_protocol,
+)
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
+from minicode.evaluation_preflight import validate_budgeted_preflight_evidence
+
 
 @dataclass(frozen=True, slots=True)
 class _RecordedContextExperiment:
@@ -20,6 +28,8 @@ class _RecordedContextExperiment:
     strategy: str
     minimum_net_savings_bytes: int | None
     retrieval_tool_loading: str | None
+    max_request_bytes: int | None
+    budgeted_configuration: BudgetedContextProjectionConfiguration | None
     model_call_count: int
     model_visible_bytes: int
     canonical_bytes: int
@@ -87,6 +97,9 @@ class _ContextProtocol:
     maximum_per_case_input_token_regression_percent: int
     maximum_failed_or_cancelled_readbacks: int
     preflight_plan: _ContextPreflightPlan | None
+    budgeted_projection_configuration: (
+        BudgetedContextProjectionConfiguration | None
+    ) = None
 
 
 def summarize_results(results_root: Path) -> str:
@@ -164,16 +177,44 @@ def _validate_context_result_against_protocol(
     if result.case_id not in protocol.cases:
         raise ValueError(f"unexpected context experiment case: {result.case_id}")
 
-    expected_threshold = (
-        protocol.baseline_threshold
-        if experiment.arm == "baseline"
-        else protocol.projection_threshold
-    )
+    budgeted_configuration = protocol.budgeted_projection_configuration
 
-    if experiment.max_inline_tool_result_bytes != expected_threshold:
-        raise ValueError("result context threshold does not match protocol file")
+    if budgeted_configuration is not None:
+        if experiment.arm == "baseline":
+            if (
+                experiment.trace_configuration_schema_version != 2
+                or experiment.strategy != "identity"
+                or experiment.max_inline_tool_result_bytes is not None
+                or experiment.budgeted_configuration is not None
+                or experiment.changed_tool_result_count != 0
+                or experiment.projection_bytes_saved != 0
+            ):
+                raise ValueError(
+                    "baseline result does not match the registered identity arm"
+                )
+        elif (
+            experiment.trace_configuration_schema_version != 3
+            or experiment.budgeted_configuration != budgeted_configuration
+            or experiment.max_request_bytes
+            != budgeted_configuration.max_request_bytes
+        ):
+            raise ValueError(
+                "projection result does not match the registered budgeted arm"
+            )
+    else:
+        expected_threshold = (
+            protocol.baseline_threshold
+            if experiment.arm == "baseline"
+            else protocol.projection_threshold
+        )
 
-    if protocol.context_projection_configuration_schema_version is not None:
+        if experiment.max_inline_tool_result_bytes != expected_threshold:
+            raise ValueError("result context threshold does not match protocol file")
+
+    if (
+        budgeted_configuration is None
+        and protocol.context_projection_configuration_schema_version is not None
+    ):
         expected_strategy = (
             protocol.baseline_strategy
             if experiment.arm == "baseline"
@@ -227,30 +268,53 @@ def summarize_context_preflight_results(
     protocol_path: Path,
 ) -> str:
     """Render and gate one two-arm context Preflight batch."""
-    protocol = _load_context_protocol(protocol_path)
+    protocol = _load_preflight_context_protocol(protocol_path)
     plan = protocol.preflight_plan
 
     if plan is None:
         raise ValueError("context protocol does not define a Preflight plan")
 
+    orchestration_evidence = (
+        validate_budgeted_preflight_evidence(
+            results_root=results_root,
+            protocol_path=protocol_path,
+        )
+        if protocol.budgeted_projection_configuration is not None
+        else None
+    )
     result_paths = tuple(sorted(results_root.rglob("result.json")))
 
     if not result_paths:
         raise ValueError(f"no result.json files found below {results_root}")
 
-    results = tuple(_load_result(path) for path in result_paths)
+    recorded_results = tuple((path, _load_result(path)) for path in result_paths)
+    results = tuple(result for _, result in recorded_results)
     grouped: dict[str, list[tuple[_RecordedEvaluation, _RecordedContextExperiment]]] = {
         "baseline": [],
         "projection": [],
     }
     run_ids: set[str] = set()
     commits: set[str] = set()
+    expected_run_by_path = (
+        {}
+        if orchestration_evidence is None
+        else {
+            run.result_path.resolve(): run for run in orchestration_evidence.runs
+        }
+    )
+    result_arm_order_gate = True
 
-    for result in results:
+    for result_path, result in recorded_results:
         experiment, run_id = _validate_context_result_against_protocol(
             result,
             protocol,
         )
+
+        if orchestration_evidence is not None:
+            expected_run = expected_run_by_path.get(result_path.resolve())
+
+            if expected_run is None or experiment.arm != expected_run.arm:
+                result_arm_order_gate = False
 
         if result.case_id != plan.case_id:
             raise ValueError("Preflight result uses a case outside the Preflight plan")
@@ -316,6 +380,9 @@ def summarize_context_preflight_results(
         protocol_snapshot_path.is_file()
         and protocol_snapshot_path.read_bytes() == protocol_path.read_bytes()
     )
+    orchestration_gate = orchestration_evidence is None or (
+        orchestration_evidence.passed and result_arm_order_gate
+    )
     preflight_passed = all(
         (
             run_shape_gate,
@@ -327,6 +394,7 @@ def summarize_context_preflight_results(
             usage_gate,
             artifact_gate,
             protocol_snapshot_gate,
+            orchestration_gate,
         )
     )
     rows = [
@@ -348,42 +416,49 @@ def summarize_context_preflight_results(
         )
 
     commit = next(iter(commits))
-    rows.extend(
+    summary_facts = [
+        "",
+        f"- Protocol: {protocol.protocol_id}",
+        f"- Case: {plan.case_id}",
+        f"- Model: {protocol.model_name}",
+        f"- MiniCode commit: {commit[:7]}",
+        f"- Run shape: {'pass' if run_shape_gate else 'fail'}",
+        f"- Safe Task Success: {'pass' if safe_success_gate else 'fail'}",
         (
-            "",
-            f"- Protocol: {protocol.protocol_id}",
-            f"- Case: {plan.case_id}",
-            f"- Model: {protocol.model_name}",
-            f"- MiniCode commit: {commit[:7]}",
-            f"- Run shape: {'pass' if run_shape_gate else 'fail'}",
-            f"- Safe Task Success: {'pass' if safe_success_gate else 'fail'}",
-            (
-                "- Projection activity: "
-                f"{projection_changes}/{plan.minimum_changed_tool_result_count} "
-                f"({'pass' if projection_activity_gate else 'fail'})"
-            ),
-            (
-                "- Failed or cancelled readbacks: "
-                f"{failed_readbacks + cancelled_readbacks}/"
-                f"{plan.maximum_failed_or_cancelled_readbacks} "
-                f"({'pass' if readback_gate else 'fail'})"
-            ),
-            (
-                f"- Provider input Token budget: {input_tokens}/"
-                f"{plan.maximum_input_tokens} "
-                f"({'pass' if input_budget_gate else 'fail'})"
-            ),
-            (
-                f"- Provider output Token budget: {output_tokens}/"
-                f"{plan.maximum_output_tokens} "
-                f"({'pass' if output_budget_gate else 'fail'})"
-            ),
-            f"- Provider Usage present: {'pass' if usage_gate else 'fail'}",
-            f"- Per-run Artifact set: {'pass' if artifact_gate else 'fail'}",
-            (f"- Protocol snapshot: {'pass' if protocol_snapshot_gate else 'fail'}"),
-            f"- Preflight gate: {'PASS' if preflight_passed else 'FAIL'}",
+            "- Projection activity: "
+            f"{projection_changes}/{plan.minimum_changed_tool_result_count} "
+            f"({'pass' if projection_activity_gate else 'fail'})"
+        ),
+        (
+            "- Failed or cancelled readbacks: "
+            f"{failed_readbacks + cancelled_readbacks}/"
+            f"{plan.maximum_failed_or_cancelled_readbacks} "
+            f"({'pass' if readback_gate else 'fail'})"
+        ),
+        (
+            f"- Provider input Token budget: {input_tokens}/"
+            f"{plan.maximum_input_tokens} "
+            f"({'pass' if input_budget_gate else 'fail'})"
+        ),
+        (
+            f"- Provider output Token budget: {output_tokens}/"
+            f"{plan.maximum_output_tokens} "
+            f"({'pass' if output_budget_gate else 'fail'})"
+        ),
+        f"- Provider Usage present: {'pass' if usage_gate else 'fail'}",
+        f"- Per-run Artifact set: {'pass' if artifact_gate else 'fail'}",
+        f"- Protocol snapshot: {'pass' if protocol_snapshot_gate else 'fail'}",
+    ]
+
+    if orchestration_evidence is not None:
+        summary_facts.append(
+            f"- Orchestration evidence: {'pass' if orchestration_gate else 'fail'}"
         )
+
+    summary_facts.append(
+        f"- Preflight gate: {'PASS' if preflight_passed else 'FAIL'}"
     )
+    rows.extend(summary_facts)
     return "\n".join(rows)
 
 
@@ -707,23 +782,68 @@ def _load_recorded_context_experiment(
         "trace_configuration",
         path,
     )
-    expected_strategy = "identity" if arm == "baseline" else "tool_result_reference"
     configuration_schema_version = trace_configuration.get(
         "configuration_schema_version"
     )
     recorded_configuration_schema_version: int | None = None
     recorded_minimum_net_savings: int | None = None
     recorded_retrieval_tool_loading: str | None = None
+    recorded_max_request_bytes: int | None = None
+    budgeted_configuration: BudgetedContextProjectionConfiguration | None = None
+
+    if configuration_schema_version == 3:
+        if arm != "projection":
+            raise ValueError(
+                f"schema-3 context trace must use the projection arm: {path}"
+            )
+
+        if "max_inline_tool_result_bytes" in experiment:
+            raise ValueError(
+                f"schema-3 context result must not contain a threshold: {path}"
+            )
+
+        budgeted_configuration = (
+            BudgetedContextProjectionConfiguration.from_payload(
+                trace_configuration
+            )
+        )
+        recorded_max_request_bytes = _required_positive_integer(
+            experiment,
+            "max_request_bytes",
+            path,
+        )
+
+        if (
+            recorded_max_request_bytes
+            != budgeted_configuration.max_request_bytes
+        ):
+            raise ValueError(
+                f"context trace request budget disagrees with result: {path}"
+            )
+
+        expected_strategy = "budgeted_tool_result_reference"
+        recorded_configuration_schema_version = 3
+        recorded_minimum_net_savings = (
+            budgeted_configuration.minimum_net_savings_bytes
+        )
+        recorded_retrieval_tool_loading = (
+            budgeted_configuration.retrieval_tool_loading
+        )
+    else:
+        expected_strategy = (
+            "identity" if arm == "baseline" else "tool_result_reference"
+        )
+
+        if trace_configuration.get("max_inline_tool_result_bytes") != threshold:
+            raise ValueError(f"context trace threshold disagrees with result: {path}")
+
+        if configuration_schema_version is not None and configuration_schema_version != 2:
+            raise ValueError(f"unknown context trace configuration schema: {path}")
 
     if _required_string(trace_configuration, "strategy", path) != expected_strategy:
         raise ValueError(f"context trace strategy disagrees with arm: {path}")
 
-    if trace_configuration.get("max_inline_tool_result_bytes") != threshold:
-        raise ValueError(f"context trace threshold disagrees with result: {path}")
-
-    if configuration_schema_version is not None:
-        if configuration_schema_version != 2:
-            raise ValueError(f"unknown context trace configuration schema: {path}")
+    if configuration_schema_version == 2:
 
         expected_minimum_net_savings = None if arm == "baseline" else 1
         expected_retrieval_tool_loading = None if arm == "baseline" else "on_reference"
@@ -759,6 +879,8 @@ def _load_recorded_context_experiment(
         strategy=expected_strategy,
         minimum_net_savings_bytes=recorded_minimum_net_savings,
         retrieval_tool_loading=recorded_retrieval_tool_loading,
+        max_request_bytes=recorded_max_request_bytes,
+        budgeted_configuration=budgeted_configuration,
         model_call_count=_required_positive_integer(metrics, "model_call_count", path),
         model_visible_bytes=_required_non_negative_integer(
             metrics, "model_visible_bytes", path
@@ -799,6 +921,76 @@ def _load_recorded_context_experiment(
         raise ValueError(f"context byte metrics are inconsistent: {path}")
 
     return record
+
+
+def _load_preflight_context_protocol(path: Path) -> _ContextProtocol:
+    """Load either a historical schema-2 or budgeted schema-3 Preflight."""
+    decoded: object = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(decoded, Mapping):
+        raise TypeError(f"context protocol must be an object: {path}")
+
+    protocol_payload = cast(Mapping[str, object], decoded)
+
+    if _required_integer(protocol_payload, "schema_version", path) != 3:
+        return _load_context_protocol(path)
+
+    protocol = load_budgeted_context_experiment_protocol(path)
+    registered_plan = protocol.preflight_plan
+    plan = _ContextPreflightPlan(
+        case_id=registered_plan.case_id,
+        arm_order=registered_plan.arm_order,
+        maximum_runs=registered_plan.budget.maximum_runs,
+        required_safe_successes_per_arm=(
+            registered_plan.required_safe_successes_per_arm
+        ),
+        minimum_changed_tool_result_count=(
+            registered_plan.minimum_changed_tool_result_count
+        ),
+        maximum_failed_or_cancelled_readbacks=(
+            registered_plan.maximum_failed_or_cancelled_readbacks
+        ),
+        provider_usage_required=registered_plan.provider_usage_required,
+        complete_artifact_set_required=(
+            registered_plan.complete_artifact_set_required
+        ),
+        maximum_input_tokens=registered_plan.budget.maximum_input_tokens,
+        maximum_output_tokens=registered_plan.budget.maximum_output_tokens,
+    )
+    gates = protocol.advancement_gates
+    return _ContextProtocol(
+        protocol_id=protocol.protocol_id,
+        model_name=protocol.model.name,
+        cases=protocol.cases,
+        baseline_threshold=None,
+        projection_threshold=None,
+        context_projection_configuration_schema_version=None,
+        baseline_strategy="identity",
+        projection_strategy="budgeted_tool_result_reference",
+        baseline_minimum_net_savings_bytes=None,
+        projection_minimum_net_savings_bytes=(
+            protocol.projection_configuration.minimum_net_savings_bytes
+        ),
+        baseline_retrieval_tool_loading=None,
+        projection_retrieval_tool_loading=(
+            protocol.projection_configuration.retrieval_tool_loading
+        ),
+        repetitions_per_case_per_arm=protocol.repetitions_per_case_per_arm,
+        required_safe_task_successes_per_arm=(
+            gates.required_safe_task_successes_per_arm
+        ),
+        minimum_aggregate_input_token_reduction_percent=(
+            gates.minimum_aggregate_input_token_reduction_percent
+        ),
+        maximum_per_case_input_token_regression_percent=(
+            gates.maximum_per_case_input_token_regression_percent
+        ),
+        maximum_failed_or_cancelled_readbacks=(
+            gates.maximum_failed_or_cancelled_readbacks
+        ),
+        preflight_plan=plan,
+        budgeted_projection_configuration=protocol.projection_configuration,
+    )
 
 
 def _load_context_protocol(path: Path) -> _ContextProtocol:

@@ -686,3 +686,251 @@
   最终回答轮次。证据窗口和终止预算不能一步一起修改，否则后续效果无法归因。
 - 下一小步先离线验证配置化的“两批保留窗口”候选，使用 Scripted Model 重放“读证据 → 看 diff →
   最终回答”，同时比较信息可用性和新增 bytes；暂不调用 Provider。
+
+## 2026-09-16 / Context Projection / 两批保留窗口离线候选
+
+- retention planner 现在可配置最近保护批数，默认保持 1；一次模型响应产生的连续并行 ToolResult
+  仍按一批计算。非默认 projector 被明确限制为离线候选，尚不能进入正式 Trace/QueryLoop。
+- 固定“早期搜索 → 注册表证据 → `git_diff`”请求中，一批策略替换两项并净省 5,645 bytes，
+  但回答前注册表只剩引用；两批策略只替换早期搜索、保留注册表全文，仍净省 3,353 bytes。
+- 该结果验证信息连续性和 bytes 代价，不验证真实模型理解或任务成功率；默认运行策略、提示、
+  max_turns 和 v3 归档协议均未改变，也未调用 Provider。
+- 检查中确认下一个独立边界：projector 可以引用超过 50,000 bytes 的结果，但 read_tool_result
+  默认拒绝返回超过 50,000 bytes 的原文。下一小步先修复和测试这项恢复契约。
+
+## 2026-09-16 / Context Projection / 可兑现的回读容量契约
+
+- 新增共享的 50,000 UTF-8 byte 完整回读上限，并由 `ReadToolResultTool` 和
+  `ToolResultReferenceProjector` 共同使用，避免两个组件各自维护容易漂移的数字。
+- projector 现在拒绝把超过回读上限的历史结果替换成引用；结果继续内联，不会向模型提供一个必然失败的
+  `read_tool_result` 路径。恰好等于上限的结果仍可引用并完整回读。
+- 自定义回读容量暂时只允许离线构造，不能进入正式 Trace；否则 schema 2 没有记录该实验变量，比较结果
+  会失去可复现性。
+- 相关的投影、回读、检索与 CodingAgent 测试共 46 个通过，Ruff lint 通过。该步骤没有改变一批保留窗口、
+  max_turns、模型提示或真实 Provider 实验协议。
+- 已知限制：超过 50,000 bytes 的历史结果暂时无法压缩。后续若确有预算压力，应设计带范围信息的分页回读，
+  而不是取消上限或把截断结果伪装成完整原文。
+
+## 2026-09-16 / Context Editing v1 / A1 预算入口契约
+
+- 新增尚未接入 QueryLoop 的纯规划模块 `context_editing.py`。`ContextEditingPolicy` 冻结请求 byte 预算、
+  最近保护批数、最小净节省、排除工具以及保留 ToolCall 的 v1 约束，并可生成稳定 Trace payload。
+- `assess_context_pressure` 只回答完整 `ModelRequest` 是否超过 byte 预算，不修改对话、不选择压缩项、
+  不添加恢复工具。刚好等于预算保持原样，超过 1 byte 才进入待编辑状态。
+- 完整请求测量包含 instructions、普通消息、ToolCall、ToolResult 和 ToolSpec。因此恢复工具定义带来的
+  新增成本不会被遗漏；但 bytes 只是当前确定性代理指标，不能冒充 Provider Token 数。
+- v1 明确要求保留 ToolCall。被清理的 ToolResult 仍需看得见原工具名称和参数，避免成为来历不明的引用。
+- 新增 14 个测试；上下文编辑、画像、投影与保留规则合计 41 个测试通过，Ruff 和 Mypy 通过。
+  当前真实运行行为完全不变。下一小步 A2 才会规划每个 ToolResult 的保护与候选原因。
+
+## 2026-09-16 / 全局精简 / 统一模型请求转换
+
+- 审查发现 `OpenAICompatibleModel.complete()` 使用完整 `ModelRequest` 转换，而 `stream()` 只转换
+  `conversation`，会漏掉 `instructions` 中的系统指令和 Skill 正文。
+- `stream()` 已改为复用 `model_request_to_openai_messages(request)`。带 instructions 的流式测试验证
+  假客户端依次收到 system 与 user 消息；普通与流式模型适配测试共 45 个通过。
+- 这次只统一输入转换。完整响应与流式 chunk 的输出解析仍是两种数据形态，应继续分开。
+- 学习要点：`conversation` 是完整请求的一部分。Provider 适配器若只读取 conversation，就可能丢失
+  instructions 或其他请求级信息。
+
+## 2026-09-16 / 全局精简 / 收缩预算压力对象
+
+- `context_editing.py` 中只有最大请求 bytes 已参与判断，因此删除了暂未生效的 Policy 配置、状态枚举和
+  提前设计的 Trace payload。未来选择器真正使用保留批数、最小收益或排除工具时再引入对应输入。
+- `ContextPressureDecision` 只保存 `request_bytes` 与 `max_request_bytes`；`overflow_bytes` 和
+  `editing_required` 改为 property。调用者无法再单独传入与数字矛盾的状态。
+- `assess_context_pressure()` 直接接收 byte 预算。完整请求仍包含 instructions、Message、ToolCall、
+  ToolResult 和 ToolSpec，刚好等于预算不编辑，超过 1 byte 才要求后续规划。
+- 源文件从 140 行降至 56 行，测试从 195 行降至 120 行；上下文压力与画像相关测试 11 个通过，
+  Ruff 和 Mypy 通过。该模块仍未接入 QueryLoop，真实 Agent 行为没有变化。
+
+## 2026-09-16 / 全局精简 / 合并 JSON 容器转换
+
+- CLI Trace、终端审批、上下文画像、Checkpoint 编码和 OpenAI 适配器原来各自递归实现一次
+  `Mapping → dict`、`tuple/list → list`。现在统一复用 `core/tool_calls.py` 的 `to_plain_json()`。
+- `_freeze_value()` 继续独立存在：它在数据进入核心对象时校验并冻结，`to_plain_json()` 在数据离开核心
+  对象、准备序列化时生成普通容器。两者方向相反，不能因为递归结构相似而合并。
+- 公共函数只负责容器形态，各调用方自己的 JSON 字段、排序、缩进和紧凑分隔符保持不变。新增测试验证
+  嵌套只读容器能恢复为 dict/list；相关测试 69 个、全套测试 591 个通过，Ruff、Mypy 与 diff 检查通过。
+
+## 2026-09-17 / 全局精简 / 共用 Trace 上下文统计
+
+- `context_comparison.py` 与 `evaluation_result.py` 原来各自遍历 Trace，重复计算模型可见 bytes、原始 bytes、
+  净节省、替换数和回读成功/失败/取消数，也重复校验 `visible == after` 和
+  `before - after == saved`。这些共同事实现在由 `context_trace.py` 统一产生。
+- 正式评测的协议 ID、Arm 和配置一致性仍由 `evaluation_result.py` 判断；离线成本模型独有的
+  `tool_result_bytes_saved` 仍由 `context_comparison.py` 严格读取。这样共用事实算法，但没有把不同实验规则
+  混成一个大函数，也没有要求旧正式 Trace 必须拥有原先不需要的字段。
+- 两类报告的 14 个针对性测试保持通过，原有输出字段和数值不变；全套 591 个测试、Ruff、Mypy 和
+  diff 检查通过。没有调用真实模型，也没有修改上下文压缩策略。
+
+## 2026-09-17 / Context Editing v1 / A2 ToolResult 决策表
+
+- 复用并扩展 `context_retention.py`，没有新建第二套分类器。每个 ToolResult 现在得到一个稳定原因：
+  最近批次、错误、排除工具、超过完整回读上限，或可进入后续选择的 `eligible`。
+- 原有 `protected_call_ids` 与 `eligible_call_ids` 改为从决策表推导，避免“理由说受保护、另一个列表却说
+  eligible”的重复状态。当前优先级是最近、错误、排除工具、无法回读、候选。
+- UTF-8 byte 边界测试使用 4 个汉字（12 bytes）验证超过 10-byte 回读上限时必须保留全文。投影器复用
+  同一决策，不再自己重复判断回读容量。
+- 相关保留、投影和回读测试 35 个、全套测试 592 个通过，Ruff、Mypy 和 diff 检查通过。A2 不按预算
+  选择项目、不改变 canonical history，也未接入新的 QueryLoop 触发流程或调用真实模型。
+
+## 2026-09-19 / Context Editing v1 / A3 预算选择计划
+
+- `plan_context_editing()` 组合 A1 压力结果和 A2 retention 决策。请求未超预算时选择为空；超预算后只从
+  `eligible` 中按最旧优先试选，达到预算即停止。
+- 规划器用临时假设请求计算真实 provider-neutral bytes：引用 JSON 和条件式 `read_tool_result` Tool Spec
+  都计入成本。引用不比原文短时跳过，全部候选仍不足时通过 `remaining_overflow_bytes` 明确报告容量不足。
+- 稳定引用渲染移到 `context_retrieval.py`，供旧 projector 与 A3 共用，防止计划成本和执行格式漂移。
+  `ContextEditingPlan` 只保存压力、retention、选择 ID 和预计大小；节省量与是否达标均由已有数字推导。
+- 测试覆盖预算内零操作、最旧候选刚好达标且计入 Tool Spec、受保护内容导致预算无法满足，以及未达到
+  最小净收益时拒绝选择；相关测试 55 个、全套测试 596 个通过，Ruff、Mypy 和 diff 检查通过。
+  没有接入 QueryLoop 或调用真实模型。
+
+## 2026-09-19 / Context Editing v1 / B1 预算投影边界
+
+- 新增 `apply_context_editing_plan()`：重新核对计划对应的 canonical request bytes，只替换计划选中的
+  eligible ToolResult，按需加入一次恢复 Tool Spec，并要求实际投影 bytes 与 A3 预计值完全相等。
+- 新增实验性的 `BudgetedToolResultProjector` 组合“计划 → 应用”。预算内返回原请求对象；超预算时生成
+  独立模型视图，canonical request 不变。
+- 请求总 bytes 与计划不匹配时立即拒绝；保护项、缺失 call ID 或实际成本漂移也有对应拒绝边界。当前计划
+  与应用在一次 `project()` 内连续发生；若未来支持延迟或跨进程应用，还需增加内容指纹，不能只比较 bytes。
+- `describe_context_projector()` 暂时拒绝预算 projector 进入 traced QueryLoop，因为现有 schema 2 没有
+  记录总预算等变量。默认 Identity、CLI 和旧 v3 协议没有变化，也未调用真实模型。
+- 后续精简把“创建一个立即丢弃的 `ContextPressureDecision` 来触发校验”改为显式的
+  `validate_max_request_bytes()`。领域对象负责表达压力决策，校验函数负责复用参数规则，避免隐藏副作用和
+  无意义的临时对象；投影器测试直接覆盖 `bool` 与零预算边界。
+- 相关测试 61 个、全套测试 602 个通过，Ruff、Mypy 和 diff 检查通过。下一步先定义新的 Trace 配置契约，
+  再讨论 QueryLoop/CLI 接入。
+
+## 2026-09-19 / Context Editing v1 / B2 schema 3 配置契约
+
+- 新增独立的 `context_projection_config.py`，把配置对象、枚举、稳定 payload 和解析职责从实际投影逻辑中
+  分离。旧 projector 的 schema 2 字段保持不变。
+- `BudgetedContextProjectionConfiguration` 使用 schema 3，记录总预算、最近保护批数、最小净收益、排除工具、
+  完整回读上限和恢复工具加载方式；排除工具名去重、排序后写入，保证稳定可比较。
+- `from_payload()` 要求字段全集严格匹配，并验证版本、策略、类型和值边界。缺少任何行为参数都拒绝解析，
+  避免不完整 Trace 被当成可复现实验。
+- `BudgetedToolResultProjector` 持有配置对象，执行时也从该对象取参数传给 planner，避免“记录值”和“运行值”
+  分成两份后漂移。
+- 新增 6 个测试；全套 608 个测试、Ruff、Mypy 和 diff 检查通过。预算 projector 仍不能进入 QueryLoop，
+  未修改 CLI、默认 Identity 或正式评测，也未调用真实模型。
+
+## 2026-09-19 / Context Editing v1 / B3 QueryLoop Trace 接入
+
+- `describe_context_projector()` 开始返回预算 projector 保存的 schema 3 配置，QueryLoop 因而可以使用现有
+  `MODEL_CALL_STARTED` 路径记录配置与每轮实际投影测量，不新增重复事件类型。
+- 新增确定性 QueryLoop 测试：较老大结果被替换为引用，ScriptedModel 收到模型视图；事件同时记录 schema 3
+  六项行为参数、变化结果数和正 byte 节省；最终 RunResult 仍保存完整 ToolResult。
+- 默认 Identity、旧 schema 2、CLI、CodingAgent 工厂和正式评测没有变化，也未调用真实模型。当前直接注入
+  QueryLoop 的宿主仍需自行保证回读工具存在，因此下一步先完成产品组装边界，不能直接开放真实实验。
+- 全套 609 个测试、Ruff、Mypy 和 diff 检查通过。
+
+## 2026-09-19 / Context Editing v1 / B4 CodingAgent 恢复链组装
+
+- `build_coding_agent()` 新增 schema 3 预算配置入口，并与旧单结果阈值参数互斥；默认仍不启用任何投影。
+- 预算模式复用现有 Run 绑定恢复链：EventLedger 提供 run_id，CheckpointStore 保存原文，
+  `RunToolResultSource` 查找当前 Run，`ReadToolResultTool` 在 Dispatcher 中预注册，Tool Spec 仅按引用出现。
+- 回读工具上限直接取自预算配置，projector 再从该工具读取同一个上限，消除“分类器允许引用、执行器却读不回”
+  的双配置风险。缺少 EventLedger/CheckpointStore 或同时选择两种投影时会在模型调用前拒绝。
+- 原端到端回读测试扩展为旧阈值/schema 2 与预算/schema 3 两种模式，均实际完成四轮工具调用和历史全文恢复；
+  新增互斥边界测试。全套 611 个测试、Ruff、Mypy 和 diff 检查通过。
+- CLI、正式评测和真实模型调用均未改变。下一步先增加 schema 3 离线评测校验，继续保留旧 v3 证据语义。
+
+## 2026-09-19 / Context Editing v1 / B5 schema 3 离线评测校验
+
+- 新增独立的 `summarize_budgeted_context_experiment()`；它接收预登记的预算配置，逐轮严格解析 schema 3，
+  检查轮次间配置不漂移，并要求每轮都等于协议配置。
+- 配置通过后复用 `summarize_context_trace()` 的公共事实检查与汇总，不复制 byte 差值或回读结果算法。
+  输出包含登记配置、总预算及模型可见/canonical bytes、净节省、变化结果和回读成败。
+- 旧 schema 2 汇总入口保持原样；测试明确确认 schema 3 Trace 会被旧 v3 路径拒绝。另有测试覆盖合法两轮
+  汇总、第二轮预算被篡改，以及 `before - after != saved` 的伪造测量。
+- 新增 4 个测试；全套 615 个测试通过。Ruff、Mypy 和 diff 检查通过；未修改 record_result CLI、协议 JSON、
+  Agent CLI 或真实模型流程。
+
+## 2026-09-19 / Context Editing v1 / B6 预算实验预注册协议
+
+- 新增独立 `context_experiment_protocol.py` 和 `real_model_protocol_v4.json`。旧 v1～v3 加载器保持不变，避免
+  schema 3 规则改变历史证据语义。
+- v4 在结果产生前锁死模型、两个 Case、schema 2 Identity baseline、schema 3 budgeted projection、两次
+  Preflight 顺序、正式重复数、Token 预算和晋级门槛；加载器交叉校验相关计数，拒绝被篡改的配置。
+- 预算暂定 10,000 bytes：v3 已归档请求启动约 4.9KB、后段约 11～14KB，因此该 Case 前段不压缩、后段能
+  进入压力分支。它是待 Preflight 验证的实验触发点，不是生产默认值。
+- 新增协议说明与 4 个 v4 注册测试；本阶段不接 CLI、运行器、结果记录或真实模型。下一步只做运行配置与协议
+  的单一来源接线，防止手工参数和协议漂移。
+
+## 2026-09-19 / Context Editing v1 / B7 协议驱动的运行与记录
+
+- `evaluation_run` 新增协议文件入口并要求显式 Arm；baseline 保持 Identity，projection 直接传协议解析出的完整
+  schema 3 配置，不再从命令参数重复拼装预算字段。
+- 通用 CLI 把预算配置传到 CodingAgent composition root，并在创建 Provider 客户端前核对登记模型；Case、
+  Provider、thinking 和 temperature 契约也会在运行前检查。
+- `evaluation_result` 新增协议文件入口，核对 Case/模型后按 Arm 选择 schema 2 或 schema 3 Trace 校验；结果
+  保存协议 ID、Arm、实际配置和上下文指标。旧 v1～v3 路径保持原样。
+- 新测试覆盖 v4 两个 Arm、显式 Arm 要求、配置传递、模型漂移提前拒绝、两种 schema 分派和完整结果落盘。
+  没有调用真实模型；v4 Preflight 汇总门禁仍待下一步实现。
+
+## 2026-09-19 / Context Editing v1 / B8 schema 3 Preflight 门禁
+
+- `evaluation_summary` 的结果加载层新增 schema 3 严格解析，并保存完整预算配置；schema 3 只允许 projection，
+  顶层请求预算必须与 Trace 配置一致。
+- Preflight 入口按协议 schema 分派配置校验，再复用原门禁检查 Arm 数、Safe Task Success、projection activity、
+  回读、Provider Token、工件、commit 和协议快照；旧 v1～v3 测试保持通过。
+- 新测试覆盖 v4 成功对照、配置漂移拒绝、快照改变导致 FAIL 和 CLI PASS。所有结果均为离线构造，没有调用模型。
+- 结果尚无可信顺序编号，当前只能证明两个 Arm 各一条，不能证明执行时间顺序；下一步用统一编排边界解决，
+  不根据目录名推断。
+
+## 2026-09-19 / Context Editing v1 / B9 Preflight 顺序编排
+
+- 新增 `evaluation_preflight.py`，把“协议顺序与失败停止”同“怎样执行一次真实评测”分开；当前通过
+  `PreflightRunExecutor` 注入假执行器，未调用模型。
+- 每批创建新的结果根目录，复制不可变协议快照，并写出含 SHA-256、Case、Arm 顺序和运行目录的
+  `preflight-plan.json`；已有目录会被拒绝而不是覆盖。
+- 每轮开始/结束立即追加到 `preflight-events.jsonl`。只有执行器报告成功且存在 `result.json` 才开始下一 Arm；
+  baseline 失败、记录缺失或执行器异常都不会继续 projection。
+- 5 个定向测试覆盖完整顺序、失败即停、假成功但无结果、目录复用保护和异常留痕；Ruff 与该模块 Mypy 通过。
+- 这一步没有真实 CLI 执行适配器，也没有 Provider 调用。下一步只接已有 prepare/run/result 流程，并先用假子进程
+  做离线验证。
+
+## 2026-09-20 / Context Editing v1 / B10 Preflight 命令执行适配器
+
+- 新增 `evaluation_preflight_executor.py`，按 Arm 复用现有 workspace prepare、`evaluation_run` 和
+  `evaluation_result` 边界，不复制 Agent、Trace 评分或隐藏验收实现。
+- Agent stdout、原始 stderr、规范 Trace、工作区路径和结果记录器输出分别落盘；stderr 在捕获时仍实时显示，避免
+  无换行的 Approval 提示被隐藏后进程等待输入。
+- 运行前要求 MiniCode Git 干净，且结果根位于仓库外，防止生成的实验文件反过来污染 `minicode_dirty`。
+- Trace 提取要求恰好一个 `Trace run_`，兼容 Approval 提示和 Trace header 同行；零个或多个标记均停止记录。
+- 新增 5 个测试（其中一个参数化为两种无效 Trace），与 B9 合计 11 个定向场景通过；全部使用假命令结果，未调用
+  Provider。全套 642 个测试、Ruff、Mypy 和 diff 检查通过。下一步让最终门禁验证 B9 计划/事件，并提供显式
+  批次入口。
+
+## 2026-09-20 / Context Editing v1 / B11 编排证据门禁与批次入口
+
+- v4 Preflight 汇总开始严格验证冻结计划：协议哈希、ID、Case、运行序号、Arm 和目录必须与注册协议完全一致；
+  篡改计划直接拒绝。
+- 追加事件必须形成 baseline started/finished → projection started/finished 的完整成功序列，结果路径必须恰好
+  对应两个槽位，结果内部 Arm 也不能互换；这些条件统一显示为 `Orchestration evidence`。
+- 编排证据加入总门禁，但只适用于拥有该证据契约的 schema 3/v4；历史 v1～v3 汇总语义保持不变。
+- `python -m minicode.evaluation_preflight` 成为批次入口，串联协议加载、B9 顺序控制、B10 命令执行和最终汇总；
+  已有结果根会在任何模型调用前拒绝。
+- 新测试覆盖完整证据、缺事件、结果换位、计划篡改和批次目录复用保护；全部为离线数据。下一步只做真实运行前
+  的只读就绪审计，当前脏工作树不能执行 v4。全套 646 个测试、Ruff、Mypy 和 diff 检查通过。
+
+## 2026-09-20 / Context Editing v1 / B12 运行前零副作用门禁
+
+- 只读就绪审计确认 API Key 非空、登记模型一致、默认 Provider 地址、案例工件、虚拟环境、仓库外输出路径和
+  Approval 交互方式均已就绪；当前唯一硬阻塞是工作树尚未形成干净 commit。
+- 审查发现批次入口原先先创建结果根和计划，再由首个 Arm 检查 Git 与路径。虽然不会误调用模型，但配置失败会
+  留下不完整目录，仓库内错误路径还会先污染工作树。
+- `ContextPreflightCommandExecutor.validate_environment()` 现在在编排器创建目录前检查 Git 干净、目标位于仓库外
+  且尚不存在；每个 Arm 执行前的检查继续保留，用于防止 baseline 之后环境发生变化。
+- 新测试证明 dirty Git 和仓库内目标都不会创建结果目录，并覆盖批次入口“前置检查 → baseline → projection →
+  汇总”的成功胶水路径。Token 预算注释也更正为运行后的 Provider Usage 晋级门禁，而不是调用中的硬限流。
+
+## 2026-09-20 / Context Editing v1 / B13 可复现实验提交
+
+- 将预算压缩运行时、v4 协议、Preflight 编排与证据门禁、测试和学习文档共 50 个文件整理为一个本地功能提交；
+  提交前全套 649 个测试、Ruff、Mypy 与 diff 检查通过。
+- 提交后工作树为空，协议、批次入口和命令适配器均能从 HEAD 读取；关键 Preflight 定向测试 50 个再次通过。
+- 该提交只建立可复现实验版本，没有运行 Provider。下一步属于会产生外部调用和费用的真实 Preflight，必须由用户
+  明确决定，并在可交互终端逐次核对 `edit_file` 与 `run_tests` 审批。

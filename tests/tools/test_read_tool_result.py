@@ -2,7 +2,10 @@ import pytest
 from pydantic import ValidationError
 
 from minicode.core.checkpoints import InMemoryCheckpointStore, RunCheckpoint
-from minicode.core.context_retrieval import RunToolResultSource
+from minicode.core.context_retrieval import (
+    DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
+    RunToolResultSource,
+)
 from minicode.core.tool_calls import ToolCall, ToolResult
 from minicode.tools.base import ToolExecutionError
 from minicode.tools.read_tool_result import (
@@ -45,6 +48,22 @@ async def test_read_tool_result_enforces_utf8_byte_limit() -> None:
         match="historical tool result exceeds 2-byte read limit: call_001",
     ):
         await tool.execute(arguments)
+
+
+@pytest.mark.asyncio
+async def test_read_tool_result_accepts_output_at_default_limit() -> None:
+    expected = "x" * DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES
+    tool = _tool_with_result(
+        ToolResult(
+            call_id="call_boundary",
+            output=expected,
+        )
+    )
+    arguments = ReadToolResultArguments.model_validate({"call_id": "call_boundary"})
+
+    output = await tool.execute(arguments)
+
+    assert output == expected
 
 
 @pytest.mark.asyncio
@@ -93,6 +112,7 @@ def test_read_tool_result_exposes_model_facing_spec() -> None:
     assert spec.arguments_type is ReadToolResultArguments
     assert parameters_schema["required"] == ["call_id"]
     assert parameters_schema["additionalProperties"] is False
+    assert tool.max_bytes == DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES
 
 
 @pytest.mark.parametrize(
@@ -138,7 +158,7 @@ async def test_read_tool_result_rejects_wrong_argument_type() -> None:
 def _tool_with_result(
     result: ToolResult,
     *,
-    max_bytes: int = 50_000,
+    max_bytes: int = DEFAULT_TOOL_RESULT_READ_LIMIT_BYTES,
 ) -> ReadToolResultTool:
     store = InMemoryCheckpointStore()
     store.save(

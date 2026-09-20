@@ -7,7 +7,7 @@ from typing import cast
 from minicode.core.checkpoints import RunCheckpoint
 from minicode.core.conversation import ConversationItem
 from minicode.core.messages import Message, MessageRole
-from minicode.core.tool_calls import JsonValue, ToolCall, ToolResult
+from minicode.core.tool_calls import JsonValue, ToolCall, ToolResult, to_plain_json
 
 _SCHEMA_VERSION = 2
 
@@ -28,7 +28,7 @@ def checkpoint_to_json(checkpoint: RunCheckpoint) -> str:
         "is_completed": checkpoint.is_completed,
     }
     return json.dumps(
-        _plain_json_value(document),
+        to_plain_json(document),
         ensure_ascii=False,
         indent=2,
         sort_keys=True,
@@ -116,16 +116,6 @@ def _decode_history_item(value: object) -> ConversationItem:
         )
 
     raise ValueError(f"unsupported checkpoint history item type: {item_type}")
-
-
-def _plain_json_value(value: JsonValue) -> JsonValue:
-    if isinstance(value, Mapping):
-        return {key: _plain_json_value(item) for key, item in value.items()}
-
-    if isinstance(value, (list, tuple)):
-        return [_plain_json_value(item) for item in value]
-
-    return value
 
 
 def _required_mapping(

@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 
 import pytest
 
@@ -6,6 +7,7 @@ from minicode.core.checkpoints import (
     InMemoryCheckpointStore,
     RunCheckpoint,
 )
+from minicode.core.context_projection import BudgetedToolResultProjector
 from minicode.core.events import (
     EventKind,
     InMemoryEventLedger,
@@ -36,6 +38,7 @@ from minicode.skills.manifest import (
 from minicode.skills.router import (
     KeywordSkillRouter,
 )
+from minicode.tools.read_tool_result import ReadToolResultArguments
 from minicode.tools.schema import ToolArguments
 from minicode.tools.scripted import ScriptedToolRuntime
 from minicode.tools.spec import ToolSpec
@@ -43,6 +46,16 @@ from minicode.tools.spec import ToolSpec
 
 class ReadFileArguments(ToolArguments):
     path: str
+
+
+_READ_TOOL_RESULT_SPEC = ToolSpec(
+    name="read_tool_result",
+    description=(
+        "Read the exact original output of an earlier tool call in the current run. "
+        "This does not execute the earlier tool again."
+    ),
+    arguments_type=ReadToolResultArguments,
+)
 
 
 @pytest.mark.asyncio
@@ -1343,6 +1356,51 @@ async def test_query_loop_records_run_boundaries() -> None:
             },
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_query_loop_records_budgeted_projection_schema_and_effect() -> None:
+    ledger = InMemoryEventLedger(run_id="run_budgeted_projection")
+    old_result = ToolResult(call_id="call_old", output="old evidence " * 300)
+    latest_result = ToolResult(call_id="call_latest", output="latest evidence")
+    initial_history = (
+        ToolCall(call_id="call_old", name="read_file", arguments={}),
+        old_result,
+        Message(role=MessageRole.ASSISTANT, content="Inspect the latest file."),
+        ToolCall(call_id="call_latest", name="read_file", arguments={}),
+        latest_result,
+    )
+    model = ScriptedModel(responses=[ModelResponse(content="Task completed.")])
+    projector = BudgetedToolResultProjector(
+        max_request_bytes=1_000,
+        retrieval_tool_spec=_READ_TOOL_RESULT_SPEC,
+        excluded_tool_names=("run_tests",),
+    )
+    loop = QueryLoop(
+        model=model,
+        event_ledger=ledger,
+        context_projector=projector,
+    )
+
+    result = await loop.run(initial_history)
+
+    assert result.message_history[1] is old_result
+    assert model.requests[0].conversation[1] != old_result
+    model_started = next(
+        event for event in ledger.events if event.kind is EventKind.MODEL_CALL_STARTED
+    )
+    projection = model_started.payload["context_projection"]
+    assert isinstance(projection, Mapping)
+    assert projection["configuration_schema_version"] == 3
+    assert projection["strategy"] == "budgeted_tool_result_reference"
+    assert projection["max_request_bytes"] == 1_000
+    assert projection["protected_recent_batch_count"] == 1
+    assert projection["minimum_net_savings_bytes"] == 1
+    assert projection["excluded_tool_names"] == ("run_tests",)
+    assert projection["max_retrievable_output_bytes"] == 50_000
+    assert projection["retrieval_tool_loading"] == "on_reference"
+    assert projection["changed_tool_result_count"] == 1
+    assert projection["total_bytes_before"] > projection["total_bytes_after"]
 
 
 @pytest.mark.asyncio

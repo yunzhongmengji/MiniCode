@@ -233,6 +233,146 @@ def _write_preflight_results(
         )
 
 
+def _write_budgeted_context_protocol(path: Path) -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    payload = json.loads(
+        (
+            project_root
+            / "benchmarks"
+            / "context_projection"
+            / "real_model_protocol_v4.json"
+        ).read_text(encoding="utf-8")
+    )
+    payload["protocol_id"] = "budgeted-context-protocol-v4"
+    payload["model"]["name"] = "test-model"
+    payload["cases"] = ["case_a"]
+    payload["preflight_plan"]["case"] = "case_a"
+    payload["formal_budget"]["maximum_runs"] = 6
+    payload["advancement_gates"][
+        "required_safe_task_successes_per_arm"
+    ] = 3
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _budgeted_context_experiment(arm: str) -> dict[str, object]:
+    if arm == "baseline":
+        return _context_experiment(
+            arm,
+            protocol_id="budgeted-context-protocol-v4",
+        )
+
+    return {
+        "protocol_id": "budgeted-context-protocol-v4",
+        "arm": "projection",
+        "max_request_bytes": 10_000,
+        "trace_configuration": {
+            "configuration_schema_version": 3,
+            "strategy": "budgeted_tool_result_reference",
+            "max_request_bytes": 10_000,
+            "protected_recent_batch_count": 2,
+            "minimum_net_savings_bytes": 1,
+            "excluded_tool_names": ["git_diff", "run_tests"],
+            "max_retrievable_output_bytes": 50_000,
+            "retrieval_tool_loading": "on_reference",
+        },
+        "metrics": {
+            "model_call_count": 1,
+            "model_visible_bytes": 90,
+            "canonical_bytes": 100,
+            "projection_bytes_saved": 10,
+            "changed_tool_result_count": 1,
+            "successful_readback_count": 0,
+            "failed_readback_count": 0,
+            "cancelled_readback_count": 0,
+        },
+    }
+
+
+def _write_budgeted_preflight_results(
+    results_root: Path,
+    protocol_path: Path,
+) -> None:
+    protocol_bytes = protocol_path.read_bytes()
+    protocol = json.loads(protocol_bytes)
+    (results_root / "protocol.snapshot.json").write_bytes(protocol_bytes)
+    runs = [
+        {
+            "run_index": index,
+            "arm": arm,
+            "result_directory": f"{index:02d}-{arm}",
+        }
+        for index, arm in enumerate(
+            protocol["preflight_plan"]["arm_order"],
+            start=1,
+        )
+    ]
+    (results_root / "preflight-plan.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "protocol_id": protocol["protocol_id"],
+                "protocol_snapshot_sha256": hashlib.sha256(
+                    protocol_bytes
+                ).hexdigest(),
+                "case_id": protocol["preflight_plan"]["case"],
+                "runs": runs,
+            }
+        ),
+        encoding="utf-8",
+    )
+    events: list[dict[str, object]] = []
+
+    for run in runs:
+        identity = {
+            "run_index": run["run_index"],
+            "arm": run["arm"],
+            "result_directory": run["result_directory"],
+        }
+        events.extend(
+            (
+                {"event": "run_started", **identity},
+                {
+                    "event": "run_finished",
+                    **identity,
+                    "passed": True,
+                    "result_recorded": True,
+                    "failure_reason": None,
+                },
+            )
+        )
+
+    (results_root / "preflight-events.jsonl").write_text(
+        "".join(f"{json.dumps(event)}\n" for event in events),
+        encoding="utf-8",
+    )
+
+    for index, (arm, input_tokens) in enumerate(
+        (("baseline", 100), ("projection", 90)),
+        start=1,
+    ):
+        _write_result(
+            results_root,
+            case_id="case_a",
+            accepted=True,
+            model_calls=1,
+            tool_executions=1,
+            input_tokens=input_tokens,
+            output_tokens=10,
+            workspace_changes=[],
+            schema_version=2,
+            verdict={
+                "outcome_passed": True,
+                "operational_passed": True,
+                "budget_passed": True,
+                "trace_passed": True,
+                "passed": True,
+            },
+            directory_name=f"{index:02d}-{arm}",
+            run_id=f"run_{arm}_{index}",
+            context_experiment=_budgeted_context_experiment(arm),
+        )
+
+
 def test_summary_combines_recorded_results(tmp_path: Path) -> None:
     _write_result(
         tmp_path,
@@ -387,6 +527,139 @@ def test_context_preflight_summary_passes_complete_pair(tmp_path: Path) -> None:
     assert "- Per-run Artifact set: pass" in summary
     assert "- Protocol snapshot: pass" in summary
     assert "- Preflight gate: PASS" in summary
+
+
+def test_budgeted_context_preflight_summary_passes_schema_three_pair(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+
+    summary = summarize_context_preflight_results(results_root, protocol_path)
+
+    assert "- Protocol: budgeted-context-protocol-v4" in summary
+    assert "| baseline | 1 | 1/1 | 100 | 10 | 0 | 0/0 |" in summary
+    assert "| projection | 1 | 1/1 | 90 | 10 | 1 | 0/0 |" in summary
+    assert "- Protocol snapshot: pass" in summary
+    assert "- Orchestration evidence: pass" in summary
+    assert "- Preflight gate: PASS" in summary
+
+
+def test_budgeted_preflight_reports_incomplete_event_sequence(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+    event_path = results_root / "preflight-events.jsonl"
+    lines = event_path.read_text(encoding="utf-8").splitlines()
+    event_path.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")
+
+    summary = summarize_context_preflight_results(results_root, protocol_path)
+
+    assert "- Orchestration evidence: fail" in summary
+    assert "- Preflight gate: FAIL" in summary
+
+
+def test_budgeted_preflight_reports_results_swapped_between_slots(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+    baseline_path = results_root / "01-baseline" / "result.json"
+    projection_path = results_root / "02-projection" / "result.json"
+    baseline = baseline_path.read_text(encoding="utf-8")
+    projection = projection_path.read_text(encoding="utf-8")
+    baseline_path.write_text(projection, encoding="utf-8")
+    projection_path.write_text(baseline, encoding="utf-8")
+
+    summary = summarize_context_preflight_results(results_root, protocol_path)
+
+    assert "- Orchestration evidence: fail" in summary
+    assert "- Preflight gate: FAIL" in summary
+
+
+def test_budgeted_preflight_rejects_tampered_frozen_plan(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+    plan_path = results_root / "preflight-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["runs"][0]["arm"] = "projection"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="plan disagrees"):
+        summarize_context_preflight_results(results_root, protocol_path)
+
+
+def test_budgeted_context_preflight_rejects_projection_configuration_drift(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+    result_path = results_root / "02-projection" / "result.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    experiment = result["context_experiment"]
+    experiment["max_request_bytes"] = 11_000
+    experiment["trace_configuration"]["max_request_bytes"] = 11_000
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="projection result does not match the registered budgeted arm",
+    ):
+        summarize_context_preflight_results(results_root, protocol_path)
+
+
+def test_budgeted_context_preflight_fails_changed_protocol_snapshot(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+    (results_root / "protocol.snapshot.json").write_text("{}", encoding="utf-8")
+
+    summary = summarize_context_preflight_results(results_root, protocol_path)
+
+    assert "- Protocol snapshot: fail" in summary
+    assert "- Preflight gate: FAIL" in summary
+
+
+def test_context_preflight_cli_accepts_budgeted_v4_protocol(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "preflight"
+    results_root.mkdir()
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_preflight_results(results_root, protocol_path)
+
+    exit_code = main(
+        (
+            str(results_root),
+            "--context-preflight-protocol",
+            str(protocol_path),
+        )
+    )
+
+    assert exit_code == 0
+    assert "- Preflight gate: PASS" in capsys.readouterr().out
 
 
 def test_context_preflight_cli_selects_preflight_gate(

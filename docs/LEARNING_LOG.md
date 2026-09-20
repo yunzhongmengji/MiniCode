@@ -947,3 +947,16 @@
   （33.86%）。单样本不能把额外轨迹归因于压缩，Preflight PASS 只代表安全性与机制门禁通过，不代表效果已成立。
 - 证据归档到 `benchmarks/context_projection/results/v4-preflight/`。正式 12-run 仍需单独授权，并以协议冻结的
   聚合降低至少 5%、单 Case 回归不超过 5%为效果结论；不得看到本结果后改写 v4 参数。
+
+## 2026-09-20 / Context Editing v1 / B15 正式实验顺序与预算控制
+
+- 新增独立 `evaluation_formal.py`，把两个 Case 各自的
+  baseline → projection → projection → baseline → baseline → projection 展开为冻结的 12 个样本；运行目录、
+  协议快照 SHA-256 和正式 Token 上限会在首个样本前写进 `formal-plan.json`。
+- 每个样本开始/结束都会同步追加 `formal-events.jsonl`。普通任务失败只表示一个真实实验样本未通过，结果仍保留并
+  继续后续顺序，不允许因为结果难看而重跑替换；执行器异常、缺少 `result.json` 或结果中的 Usage 无效才停止。
+- 每份结果落盘后累加 Provider input/output Token；一旦超过冻结预算便停止下一次调用。它是“结果后停止规则”，
+  无法预知并阻止刚完成的单次调用跨过上限，因此超限批次本身仍应判失败。
+- 5 个离线测试覆盖 12 次精确顺序、失败样本保留、缺记录即停、累计预算停止和旧目录保护；本步骤没有调用模型。
+- 下一步只把该控制器接到已经验证过的 prepare/run/result 命令适配器，并让正式汇总核对计划与事件证据；在这些
+  门禁完成并形成干净 commit 前，不启动 12 次真实调用。

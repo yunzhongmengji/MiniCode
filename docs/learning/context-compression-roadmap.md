@@ -419,3 +419,14 @@ B16 已把正式请求接入经过 Preflight 验证的真实命令边界：
 
 下一小步只把 B15 的正式计划、事件、结果槽位和总 Token 预算纳入最终汇总门禁，并增加一个正式批次 CLI 入口。
 完成后还需形成干净 commit，才能真正执行已经授权的 12 个 Provider 样本。
+
+B17 已把正式编排证据接入最终 Advancement gate：
+
+1. 汇总按登记协议重建 12 个槽位，严格核对正式计划、协议 SHA-256 和预算字段。
+2. 协议快照、结果路径集合、结果内部 Case/Arm 与每个槽位必须一致，结果文件不能交换或额外混入。
+3. 每轮事件中的任务结论、单轮 Usage、累计 Usage 和预算标记都从 `result.json` 重算，而不是信任日志自报。
+4. 正式 input/output 总预算和 orchestration evidence 都进入 Advancement gate；任一失败都不能宣称压缩有效。
+5. schema 1/2 历史正式汇总保持原语义，只有 schema 3/v4 要求新证据。
+
+下一小步只增加 `evaluation_formal` 批次 CLI：运行前检查干净仓库与仓库外新目录，串联正式控制器、公共命令执行器
+和最终汇总。离线 CLI 测试通过并形成干净 commit 后，才真正启动 12 次 Provider 调用。

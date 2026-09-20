@@ -971,3 +971,16 @@
   错误 Case/Arm 位置不会产生工作区记录或执行命令。
 - 本步骤没有增加批次 CLI，也没有调用 Provider。下一步只让正式汇总验证 `formal-plan.json`、事件顺序、结果路径
   和总 Token 预算；该证据门禁通过并提交后，才启动真实 12-run。
+
+## 2026-09-20 / Context Editing v1 / B17 正式实验跨文件证据门禁
+
+- 正式汇总现在先从 v4 协议重建 12 个预期槽位，并逐字段核对 `formal-plan.json`；计划中的协议哈希、预算、全局
+  序号、Case、Arm 或目录被改动时直接拒绝汇总。
+- 协议快照必须与登记文件逐 byte 相同，结果路径集合必须恰好覆盖所有槽位；汇总还会核对每个结果内容声明的
+  Case/Arm，防止交换两个 `result.json` 后仍按目录名计算。
+- `formal-events.jsonl` 必须严格符合 started → finished 顺序，finished 中的任务结果、单轮 Token、累计 Token 和
+  超限标记都从真实结果重新计算；改一项就使 orchestration gate 失败。
+- 正式 input/output 总预算成为 Advancement gate 的组成部分。预算最后一轮才越界时，完整样本可以保留，但最终
+  结论仍为 FAIL。
+- 新增 6 个 schema-3 正式汇总测试，覆盖完整 PASS、事件篡改、结果换位、预算超限、计划篡改和快照篡改；没有
+  调用 Provider。下一步只增加安全的正式批次 CLI，将 B15、B16、B17 串起来。

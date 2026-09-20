@@ -16,6 +16,7 @@ from minicode.context_experiment_protocol import (
 from minicode.core.context_projection_config import (
     BudgetedContextProjectionConfiguration,
 )
+from minicode.evaluation_formal import validate_budgeted_formal_evidence
 from minicode.evaluation_preflight import validate_budgeted_preflight_evidence
 
 
@@ -467,13 +468,27 @@ def summarize_context_experiment_results(
     protocol_path: Path,
 ) -> str:
     """Render and gate one formal context-projection A/B result batch."""
-    protocol = _load_context_protocol(protocol_path)
+    protocol = _load_formal_context_protocol(protocol_path)
+    registered_protocol = (
+        load_budgeted_context_experiment_protocol(protocol_path)
+        if protocol.budgeted_projection_configuration is not None
+        else None
+    )
+    orchestration_evidence = (
+        validate_budgeted_formal_evidence(
+            results_root=results_root,
+            protocol_path=protocol_path,
+        )
+        if registered_protocol is not None
+        else None
+    )
     result_paths = tuple(sorted(results_root.rglob("result.json")))
 
     if not result_paths:
         raise ValueError(f"no result.json files found below {results_root}")
 
-    results = tuple(_load_result(path) for path in result_paths)
+    recorded_results = tuple((path, _load_result(path)) for path in result_paths)
+    results = tuple(result for _, result in recorded_results)
     grouped: dict[tuple[str, str], list[_RecordedEvaluation]] = {
         (case_id, arm): []
         for case_id in protocol.cases
@@ -481,12 +496,30 @@ def summarize_context_experiment_results(
     }
     run_ids: set[str] = set()
     commits: set[str] = set()
+    expected_run_by_path = (
+        {}
+        if orchestration_evidence is None
+        else {
+            run.result_path.resolve(): run for run in orchestration_evidence.runs
+        }
+    )
+    result_order_gate = True
 
-    for result in results:
+    for result_path, result in recorded_results:
         experiment, run_id = _validate_context_result_against_protocol(
             result,
             protocol,
         )
+
+        if orchestration_evidence is not None:
+            expected_run = expected_run_by_path.get(result_path.resolve())
+
+            if (
+                expected_run is None
+                or result.case_id != expected_run.case_id
+                or experiment.arm != expected_run.arm
+            ):
+                result_order_gate = False
 
         if run_id in run_ids:
             raise ValueError(f"duplicate context experiment run_id: {run_id}")
@@ -588,6 +621,21 @@ def summarize_context_experiment_results(
     readback_gate = (
         failed_or_cancelled_readbacks <= protocol.maximum_failed_or_cancelled_readbacks
     )
+    total_input_tokens = sum(input_tokens.values())
+    total_output_tokens = sum(output_tokens.values())
+    formal_input_budget_gate = (
+        registered_protocol is None
+        or total_input_tokens
+        <= registered_protocol.formal_budget.maximum_input_tokens
+    )
+    formal_output_budget_gate = (
+        registered_protocol is None
+        or total_output_tokens
+        <= registered_protocol.formal_budget.maximum_output_tokens
+    )
+    orchestration_gate = orchestration_evidence is None or (
+        orchestration_evidence.passed and result_order_gate
+    )
     advancement_passed = all(
         (
             repetition_complete,
@@ -595,6 +643,9 @@ def summarize_context_experiment_results(
             aggregate_token_gate,
             per_case_token_gate,
             readback_gate,
+            formal_input_budget_gate,
+            formal_output_budget_gate,
+            orchestration_gate,
         )
     )
     rendered_reduction = (
@@ -635,8 +686,33 @@ def summarize_context_experiment_results(
                 f"{failed_or_cancelled_readbacks} "
                 f"({'pass' if readback_gate else 'fail'})"
             ),
-            f"- Advancement gate: {'PASS' if advancement_passed else 'FAIL'}",
         )
+    )
+
+    if registered_protocol is not None:
+        rows.extend(
+            (
+                (
+                    "- Provider input Token budget: "
+                    f"{total_input_tokens}/"
+                    f"{registered_protocol.formal_budget.maximum_input_tokens} "
+                    f"({'pass' if formal_input_budget_gate else 'fail'})"
+                ),
+                (
+                    "- Provider output Token budget: "
+                    f"{total_output_tokens}/"
+                    f"{registered_protocol.formal_budget.maximum_output_tokens} "
+                    f"({'pass' if formal_output_budget_gate else 'fail'})"
+                ),
+                (
+                    "- Orchestration evidence: "
+                    f"{'pass' if orchestration_gate else 'fail'}"
+                ),
+            )
+        )
+
+    rows.append(
+        f"- Advancement gate: {'PASS' if advancement_passed else 'FAIL'}"
     )
     return "\n".join(rows)
 
@@ -991,6 +1067,21 @@ def _load_preflight_context_protocol(path: Path) -> _ContextProtocol:
         preflight_plan=plan,
         budgeted_projection_configuration=protocol.projection_configuration,
     )
+
+
+def _load_formal_context_protocol(path: Path) -> _ContextProtocol:
+    """Load historical formal protocols or the registered budgeted schema."""
+    decoded: object = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(decoded, Mapping):
+        raise TypeError(f"context protocol must be an object: {path}")
+
+    protocol_payload = cast(Mapping[str, object], decoded)
+
+    if _required_integer(protocol_payload, "schema_version", path) == 3:
+        return _load_preflight_context_protocol(path)
+
+    return _load_context_protocol(path)
 
 
 def _load_context_protocol(path: Path) -> _ContextProtocol:

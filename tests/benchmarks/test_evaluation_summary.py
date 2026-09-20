@@ -4,6 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from minicode.evaluation_formal import (
+    FormalRunRequest,
+    run_budgeted_context_formal_experiment,
+)
 from minicode.evaluation_summary import (
     main,
     summarize_context_experiment_results,
@@ -29,7 +33,7 @@ def _write_result(
     context_experiment: dict[str, object] | None = None,
 ) -> None:
     case_root = root / (case_id if directory_name is None else directory_name)
-    case_root.mkdir()
+    case_root.mkdir(exist_ok=True)
     result = {
         "schema_version": schema_version,
         "case_id": case_id,
@@ -233,7 +237,11 @@ def _write_preflight_results(
         )
 
 
-def _write_budgeted_context_protocol(path: Path) -> None:
+def _write_budgeted_context_protocol(
+    path: Path,
+    *,
+    formal_input_budget: int = 270_000,
+) -> None:
     project_root = Path(__file__).resolve().parents[2]
     payload = json.loads(
         (
@@ -248,6 +256,7 @@ def _write_budgeted_context_protocol(path: Path) -> None:
     payload["cases"] = ["case_a"]
     payload["preflight_plan"]["case"] = "case_a"
     payload["formal_budget"]["maximum_runs"] = 6
+    payload["formal_budget"]["maximum_input_tokens"] = formal_input_budget
     payload["advancement_gates"][
         "required_safe_task_successes_per_arm"
     ] = 3
@@ -371,6 +380,43 @@ def _write_budgeted_preflight_results(
             run_id=f"run_{arm}_{index}",
             context_experiment=_budgeted_context_experiment(arm),
         )
+
+
+def _write_budgeted_formal_results(
+    results_root: Path,
+    protocol_path: Path,
+) -> None:
+    class _FormalFixtureExecutor:
+        def execute(self, request: FormalRunRequest) -> bool:
+            input_tokens = 100 if request.arm == "baseline" else 90
+            _write_result(
+                request.result_directory.parent,
+                case_id=request.case_id,
+                accepted=True,
+                model_calls=1,
+                tool_executions=1,
+                input_tokens=input_tokens,
+                output_tokens=10,
+                workspace_changes=[],
+                schema_version=2,
+                verdict={
+                    "outcome_passed": True,
+                    "operational_passed": True,
+                    "budget_passed": True,
+                    "trace_passed": True,
+                    "passed": True,
+                },
+                directory_name=request.result_directory.name,
+                run_id=f"run_{request.run_index}",
+                context_experiment=_budgeted_context_experiment(request.arm),
+            )
+            return True
+
+    run_budgeted_context_formal_experiment(
+        protocol_path=protocol_path,
+        results_root=results_root,
+        executor=_FormalFixtureExecutor(),
+    )
 
 
 def test_summary_combines_recorded_results(tmp_path: Path) -> None:
@@ -546,6 +592,115 @@ def test_budgeted_context_preflight_summary_passes_schema_three_pair(
     assert "- Protocol snapshot: pass" in summary
     assert "- Orchestration evidence: pass" in summary
     assert "- Preflight gate: PASS" in summary
+
+
+def test_budgeted_formal_summary_passes_complete_orchestration_evidence(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_formal_results(results_root, protocol_path)
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "| case_a | baseline | 3 | 3/3 | 300 | 30 | 0/0/0 |" in summary
+    assert "| case_a | projection | 3 | 3/3 | 270 | 30 | 0/0/0 |" in summary
+    assert "- Provider input Token budget: 570/270000 (pass)" in summary
+    assert "- Provider output Token budget: 60/30000 (pass)" in summary
+    assert "- Orchestration evidence: pass" in summary
+    assert "- Advancement gate: PASS" in summary
+
+
+def test_budgeted_formal_summary_fails_tampered_event_usage(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_formal_results(results_root, protocol_path)
+    event_path = results_root / "formal-events.jsonl"
+    events = [
+        json.loads(line)
+        for line in event_path.read_text(encoding="utf-8").splitlines()
+    ]
+    events[1]["cumulative_input_tokens"] = 999
+    event_path.write_text(
+        "".join(f"{json.dumps(event)}\n" for event in events),
+        encoding="utf-8",
+    )
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "- Orchestration evidence: fail" in summary
+    assert "- Advancement gate: FAIL" in summary
+
+
+def test_budgeted_formal_summary_fails_results_swapped_between_slots(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_formal_results(results_root, protocol_path)
+    baseline_path = (
+        results_root / "01-case_a-baseline" / "result.json"
+    )
+    projection_path = (
+        results_root / "02-case_a-projection" / "result.json"
+    )
+    baseline = baseline_path.read_text(encoding="utf-8")
+    projection = projection_path.read_text(encoding="utf-8")
+    baseline_path.write_text(projection, encoding="utf-8")
+    projection_path.write_text(baseline, encoding="utf-8")
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "- Orchestration evidence: fail" in summary
+    assert "- Advancement gate: FAIL" in summary
+
+
+def test_budgeted_formal_summary_fails_provider_budget_gate(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    _write_budgeted_context_protocol(protocol_path, formal_input_budget=550)
+    _write_budgeted_formal_results(results_root, protocol_path)
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "- Provider input Token budget: 570/550 (fail)" in summary
+    assert "- Orchestration evidence: pass" in summary
+    assert "- Advancement gate: FAIL" in summary
+
+
+def test_budgeted_formal_summary_rejects_tampered_plan(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_formal_results(results_root, protocol_path)
+    plan_path = results_root / "formal-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["runs"][0]["arm"] = "projection"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Formal plan disagrees"):
+        summarize_context_experiment_results(results_root, protocol_path)
+
+
+def test_budgeted_formal_summary_fails_tampered_protocol_snapshot(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_formal_results(results_root, protocol_path)
+    snapshot_path = results_root / "protocol.snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot["protocol_id"] = "tampered-after-run"
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "- Orchestration evidence: fail" in summary
+    assert "- Advancement gate: FAIL" in summary
 
 
 def test_budgeted_preflight_reports_incomplete_event_sequence(

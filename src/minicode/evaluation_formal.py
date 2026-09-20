@@ -81,6 +81,36 @@ class FormalOrchestrationResult:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class FormalEvidenceRun:
+    """One result slot frozen by the formal orchestration plan."""
+
+    run_index: int
+    case_id: str
+    arm: str
+    result_directory: str
+    result_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class FormalEvidenceValidation:
+    """Cross-file evidence required before formal metrics are trusted."""
+
+    runs: tuple[FormalEvidenceRun, ...]
+    protocol_snapshot_passed: bool
+    event_sequence_passed: bool
+    result_path_set_passed: bool
+
+    @property
+    def passed(self) -> bool:
+        """Return whether snapshot, events, and result slots all agree."""
+        return (
+            self.protocol_snapshot_passed
+            and self.event_sequence_passed
+            and self.result_path_set_passed
+        )
+
+
 def run_budgeted_context_formal_experiment(
     *,
     protocol_path: Path,
@@ -196,6 +226,96 @@ def run_budgeted_context_formal_experiment(
     )
 
 
+def validate_budgeted_formal_evidence(
+    *,
+    results_root: Path,
+    protocol_path: Path,
+) -> FormalEvidenceValidation:
+    """Verify one formal plan, event stream, snapshot, and result path set."""
+    root = results_root.resolve(strict=True)
+    source_protocol_path = protocol_path.resolve(strict=True)
+    protocol = load_budgeted_context_experiment_protocol(source_protocol_path)
+    protocol_bytes = source_protocol_path.read_bytes()
+    snapshot_path = root / "protocol.snapshot.json"
+    requests = _build_run_requests(protocol, root, snapshot_path)
+    expected_plan = _build_plan_payload(protocol, protocol_bytes, requests)
+    decoded_plan = _load_json_mapping(root / "formal-plan.json")
+
+    if dict(decoded_plan) != expected_plan:
+        raise ValueError("Formal plan disagrees with the registered protocol")
+
+    runs = tuple(
+        FormalEvidenceRun(
+            run_index=request.run_index,
+            case_id=request.case_id,
+            arm=request.arm,
+            result_directory=request.result_directory.name,
+            result_path=request.result_directory / "result.json",
+        )
+        for request in requests
+    )
+    expected_result_paths = frozenset(
+        run.result_path.relative_to(root) for run in runs
+    )
+    actual_result_paths = frozenset(
+        path.relative_to(root) for path in root.rglob("result.json")
+    )
+    result_path_set_passed = actual_result_paths == expected_result_paths
+    protocol_snapshot_passed = (
+        snapshot_path.is_file() and snapshot_path.read_bytes() == protocol_bytes
+    )
+    event_sequence_passed = False
+
+    if result_path_set_passed:
+        expected_events: list[dict[str, object]] = []
+        cumulative_input_tokens = 0
+        cumulative_output_tokens = 0
+
+        for request in requests:
+            input_tokens, output_tokens = _read_recorded_usage(
+                request.result_directory / "result.json"
+            )
+            task_passed = _read_recorded_task_passed(
+                request.result_directory / "result.json"
+            )
+            cumulative_input_tokens += input_tokens
+            cumulative_output_tokens += output_tokens
+            budget_exceeded = (
+                cumulative_input_tokens
+                > protocol.formal_budget.maximum_input_tokens
+                or cumulative_output_tokens
+                > protocol.formal_budget.maximum_output_tokens
+            )
+            identity = _event_identity(request)
+            expected_events.extend(
+                (
+                    {"event": "run_started", **identity},
+                    {
+                        "event": "run_finished",
+                        **identity,
+                        "task_passed": task_passed,
+                        "result_recorded": True,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cumulative_input_tokens": cumulative_input_tokens,
+                        "cumulative_output_tokens": cumulative_output_tokens,
+                        "budget_exceeded": budget_exceeded,
+                    },
+                )
+            )
+
+        event_sequence_passed = _load_events(
+            root / "formal-events.jsonl"
+        ) == expected_events
+
+    return FormalEvidenceValidation(
+        runs=runs,
+        protocol_snapshot_passed=protocol_snapshot_passed,
+        event_sequence_passed=event_sequence_passed,
+        result_path_set_passed=result_path_set_passed,
+    )
+
+
 def _build_run_requests(
     protocol: BudgetedContextExperimentProtocol,
     root: Path,
@@ -274,6 +394,26 @@ def _read_recorded_usage(path: Path) -> tuple[int, int]:
     return input_tokens, output_tokens
 
 
+def _read_recorded_task_passed(path: Path) -> bool:
+    decoded: object = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(decoded, Mapping):
+        raise TypeError("formal result must be a JSON object")
+
+    result = cast(Mapping[str, object], decoded)
+    verdict = result.get("verdict")
+
+    if not isinstance(verdict, Mapping):
+        raise TypeError("formal result verdict must be a JSON object")
+
+    passed = verdict.get("passed")
+
+    if type(passed) is not bool:
+        raise TypeError("formal result verdict passed must be a boolean")
+
+    return passed
+
+
 def _event_identity(request: FormalRunRequest) -> dict[str, object]:
     return {
         "run_index": request.run_index,
@@ -295,6 +435,37 @@ def _write_json_exclusively(path: Path, payload: object) -> None:
     with path.open("x", encoding="utf-8") as stream:
         json.dump(payload, stream, ensure_ascii=False, indent=2, sort_keys=True)
         stream.write("\n")
+
+
+def _load_json_mapping(path: Path) -> Mapping[str, object]:
+    decoded: object = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(decoded, Mapping):
+        raise TypeError(f"Formal JSON must be an object: {path}")
+
+    return decoded
+
+
+def _load_events(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+
+    events: list[dict[str, object]] = []
+
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        decoded: object = json.loads(line)
+
+        if not isinstance(decoded, Mapping):
+            raise TypeError(
+                f"Formal event must be an object: {path}:{line_number}"
+            )
+
+        events.append(dict(decoded))
+
+    return events
 
 
 def _append_event(path: Path, event: object) -> None:

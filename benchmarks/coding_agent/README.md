@@ -17,6 +17,28 @@
 | `large_search_context_repair` | 大搜索结果下的共享配置修复 | `service_config/timeouts.py` |
 | `large_search_context_recall` | 修复后报告早期搜索证据 | `service_config/timeouts.py` |
 
+## Case Manifest 的 Trace 语义
+
+历史 Case 默认保持 schema 2，其中 `required_successful_tools` 是历史复合字段，会同时影响过程覆盖和旧 Trace 判定。
+已经迁移或新建的 Case 可以使用 schema 3，把诊断与安全要求写开：
+
+```json
+{
+  "schema_version": 3,
+  "trace_expectations": {
+    "process_coverage_tools": ["list_files", "search_text", "read_file"],
+    "forbidden_tool_requests": ["create_file"],
+    "require_successful_test_after_change": true
+  }
+}
+```
+
+`process_coverage_tools` 只回答推荐的调查路径是否被覆盖；`forbidden_tool_requests` 和
+`require_successful_test_after_change` 表达安全要求。任务最终是否正确仍由隐藏 `acceptance.py` 判断，不应把
+`edit_file` 等结果动作重复写成 Trace 正确性条件。schema 2 与 schema 3 不能混写字段；现有 Case 在正式迁移前
+继续采用旧语义。当前两个上下文压缩正式 Case——`large_search_context_repair` 和
+`large_search_context_recall`——已经迁移到 schema 3，其余 Case 仍为 schema 2。
+
 ## 运行一个 Case
 
 在 MiniCode 仓库根目录执行：

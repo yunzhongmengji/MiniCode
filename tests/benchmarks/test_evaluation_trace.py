@@ -2,7 +2,7 @@ import pytest
 
 from minicode.core.events import EventKind, LedgerEvent
 from minicode.core.replay import RunReplay
-from minicode.evaluation_case import TraceExpectations
+from minicode.evaluation_case import TraceExpectations, TraceExpectationsV3
 from minicode.evaluation_trace import (
     TraceEvaluation,
     evaluate_trace_expectations,
@@ -139,3 +139,33 @@ def test_trace_evaluation_requires_successful_test_after_last_change(
 
     assert evaluation.successful_test_after_last_change is expected
     assert evaluation.passed is expected
+
+
+def test_schema_3_trace_separates_coverage_from_post_change_safety() -> None:
+    replay = _replay(
+        (EventKind.RUN_STARTED, {}),
+        (
+            EventKind.TOOL_EXECUTION_FINISHED,
+            {
+                "tool_name": "edit_file",
+                "outcome": "succeeded",
+            },
+        ),
+        (EventKind.RUN_FINISHED, {"outcome": "succeeded"}),
+    )
+
+    evaluation = evaluate_trace_expectations(
+        replay=replay,
+        expectations=TraceExpectationsV3(
+            process_coverage_tools=("list_files",),
+            forbidden_tool_requests=("create_file",),
+            require_successful_test_after_change=True,
+        ),
+    )
+
+    assert evaluation == TraceEvaluation(
+        missing_required_tools=("list_files",),
+        requested_forbidden_tools=(),
+        successful_test_after_last_change=False,
+    )
+    assert evaluation.passed is False

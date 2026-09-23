@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "case_id": "large_search_context_repair",
   "category": "context_projection_repair",
   "ground_truth": {
@@ -18,16 +18,15 @@
     "create additional project files"
   ],
   "trace_expectations": {
-    "required_successful_tools": [
+    "process_coverage_tools": [
       "list_files",
       "search_text",
-      "read_file",
-      "edit_file",
-      "run_tests"
+      "read_file"
     ],
     "forbidden_tool_requests": [
       "create_file"
-    ]
+    ],
+    "require_successful_test_after_change": true
   },
   "budget": {
     "max_turns": 8,

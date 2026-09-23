@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+import minicode.evaluation_archive as archive_module
 import minicode.evaluation_preflight_executor as executor_module
 import minicode.evaluation_summary as summary_module
+from minicode.evaluation_archive import FormalArchiveResult
 from minicode.evaluation_formal import (
     FormalRunRequest,
     main,
@@ -234,18 +236,57 @@ def test_formal_batch_cli_wires_validation_execution_and_summary(
         _fake_summary,
     )
 
+    def _fake_validate_archive_target(
+        *,
+        archive_root: Path,
+        source_root: Path | None = None,
+    ) -> Path:
+        assert archive_root == tmp_path / "archive"
+        assert source_root == tmp_path / "formal"
+        calls.append("archive-validated")
+        return archive_root
+
+    def _fake_archive(
+        *,
+        source_root: Path,
+        archive_root: Path,
+        protocol_path: Path,
+    ) -> FormalArchiveResult:
+        assert source_root == tmp_path / "formal"
+        assert archive_root == tmp_path / "archive"
+        assert protocol_path == PROTOCOL_PATH
+        calls.append("archived")
+        return FormalArchiveResult(
+            archive_root=archive_root,
+            source_file_count=1,
+            summary="- Advancement gate: PASS",
+        )
+
+    monkeypatch.setattr(
+        archive_module,
+        "validate_formal_archive_target",
+        _fake_validate_archive_target,
+    )
+    monkeypatch.setattr(
+        archive_module,
+        "archive_formal_experiment",
+        _fake_archive,
+    )
+
     exit_code = main(
         (
             "--protocol",
             str(PROTOCOL_PATH),
             "--results-root",
             str(tmp_path / "formal"),
+            "--archive-root",
+            str(tmp_path / "archive"),
         )
     )
 
     assert exit_code == 0
-    assert calls[:2] == ["constructed", "validated"]
-    assert calls[2:-1] == [
+    assert calls[:3] == ["constructed", "validated", "archive-validated"]
+    assert calls[3:-2] == [
         f"executed:{index}:{arm}"
         for index, arm in enumerate(
             (
@@ -260,7 +301,7 @@ def test_formal_batch_cli_wires_validation_execution_and_summary(
             start=1,
         )
     ]
-    assert calls[-1] == "summarized"
+    assert calls[-2:] == ["summarized", "archived"]
     assert "Advancement gate: PASS" in capsys.readouterr().out
 
 
@@ -296,6 +337,8 @@ def test_formal_batch_cli_stops_without_result_record(
             str(PROTOCOL_PATH),
             "--results-root",
             str(tmp_path / "formal"),
+            "--archive-root",
+            str(tmp_path / "archive"),
         )
     )
 
@@ -336,6 +379,15 @@ def test_formal_batch_cli_returns_one_when_advancement_gate_fails(
         "summarize_context_experiment_results",
         lambda *_: "- Advancement gate: FAIL",
     )
+    monkeypatch.setattr(
+        archive_module,
+        "archive_formal_experiment",
+        lambda **_: FormalArchiveResult(
+            archive_root=tmp_path / "archive",
+            source_file_count=1,
+            summary="- Advancement gate: FAIL",
+        ),
+    )
 
     exit_code = main(
         (
@@ -343,6 +395,8 @@ def test_formal_batch_cli_returns_one_when_advancement_gate_fails(
             str(PROTOCOL_PATH),
             "--results-root",
             str(tmp_path / "formal"),
+            "--archive-root",
+            str(tmp_path / "archive"),
         )
     )
 
@@ -374,9 +428,58 @@ def test_formal_batch_cli_validates_before_creating_results_root(
             str(PROTOCOL_PATH),
             "--results-root",
             str(results_root),
+            "--archive-root",
+            str(tmp_path / "archive"),
         )
     )
 
     assert exit_code == 2
     assert "unsafe fixture" in capsys.readouterr().err
+    assert not results_root.exists()
+
+
+def test_formal_batch_cli_rejects_existing_archive_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[str] = []
+
+    class _UnusedExecutor:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def validate_environment(self, results_root: Path) -> None:
+            calls.append("environment-validated")
+
+        def execute(self, request: FormalRunRequest) -> bool:
+            calls.append("executed")
+            raise AssertionError("formal sample started")
+
+    monkeypatch.setattr(
+        executor_module,
+        "ContextFormalCommandExecutor",
+        _UnusedExecutor,
+    )
+    archive_root = tmp_path / "archive"
+    archive_root.mkdir()
+    sentinel = archive_root / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    results_root = tmp_path / "formal"
+
+    exit_code = main(
+        (
+            "--protocol",
+            str(PROTOCOL_PATH),
+            "--results-root",
+            str(results_root),
+            "--archive-root",
+            str(archive_root),
+        )
+    )
+
+    assert exit_code == 2
+    assert calls == ["environment-validated"]
+    assert "Formal experiment error" in capsys.readouterr().err
+    assert sentinel.read_text(encoding="utf-8") == "keep"
     assert not results_root.exists()

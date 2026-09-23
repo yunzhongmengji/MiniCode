@@ -486,6 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--protocol", type=Path, required=True)
     parser.add_argument("--results-root", type=Path, required=True)
+    parser.add_argument("--archive-root", type=Path, required=True)
     parser.add_argument(
         "--project-root",
         type=Path,
@@ -499,6 +500,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run, record, and gate one registered formal context batch."""
     args = build_parser().parse_args(argv)
 
+    from minicode import evaluation_archive as archive_module
     from minicode.evaluation_preflight_executor import (
         ContextFormalCommandExecutor,
     )
@@ -510,6 +512,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             temporary_root=args.temporary_root,
         )
         executor.validate_environment(args.results_root)
+        archive_module.validate_formal_archive_target(
+            archive_root=args.archive_root,
+            source_root=args.results_root,
+        )
         result = run_budgeted_context_formal_experiment(
             protocol_path=args.protocol,
             results_root=args.results_root,
@@ -533,11 +539,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             result.results_root,
             args.protocol,
         )
+        archive = archive_module.archive_formal_experiment(
+            source_root=result.results_root,
+            archive_root=args.archive_root,
+            protocol_path=args.protocol,
+        )
     except (OSError, TypeError, ValueError) as error:
         print(f"Formal experiment gate error: {error}", file=sys.stderr)
         return 2
 
+    if archive.summary != summary:
+        print(
+            "Formal experiment gate error: archive summary changed after return",
+            file=sys.stderr,
+        )
+        return 2
+
     print(summary)
+    print(f"Formal archive: {archive.archive_root}")
     return 1 if summary.endswith("- Advancement gate: FAIL") else 0
 
 

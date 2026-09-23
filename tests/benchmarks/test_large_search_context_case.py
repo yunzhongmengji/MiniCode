@@ -16,12 +16,13 @@ from minicode.core.events import EventKind, InMemoryEventLedger
 from minicode.core.messages import Message, MessageRole
 from minicode.core.model import ModelRequest, ModelResponse
 from minicode.core.query_loop import StopReason
-from minicode.core.tool_calls import ToolCall, ToolResult
+from minicode.core.tool_calls import ToolCall, ToolResult, to_plain_json
 from minicode.core.tool_policy import (
     ConfiguredToolPolicy,
     PolicyDecision,
     PolicyOutcome,
 )
+from minicode.evaluation_result import record_result
 from minicode.models.scripted import ScriptedModel
 from minicode.tools.process import AsyncioProcessRunner
 from minicode.tools.read_tool_result import ReadToolResultTool
@@ -84,6 +85,32 @@ def _run_acceptance(
     )
 
 
+def _full_trace(
+    event_ledger: InMemoryEventLedger,
+    *,
+    excluded_tool_name: str | None = None,
+) -> str:
+    lines = [f"Trace {event_ledger.run_id}"]
+    included_events = tuple(
+        event
+        for event in event_ledger.events
+        if excluded_tool_name is None
+        or event.payload.get("tool_name") != excluded_tool_name
+    )
+
+    for sequence, event in enumerate(included_events, start=1):
+        lines.append(
+            f"{sequence:03d} {event.kind.value} "
+            + json.dumps(
+                to_plain_json(event.payload),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+
+    return "\n".join(lines) + "\n"
+
+
 def test_large_search_context_case_rejects_bug_and_accepts_shared_fix(
     tmp_path: Path,
 ) -> None:
@@ -110,6 +137,36 @@ def test_large_search_context_case_rejects_bug_and_accepts_shared_fix(
 
     assert acceptance.returncode == 0, acceptance.stderr
     assert acceptance.stdout.strip() == "PASS large_search_context_repair"
+
+
+def test_large_search_context_acceptance_leaves_tool_path_to_trace_contract(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    shutil.copytree(_CASE_ROOT / "workspace", workspace)
+    _initialize_repository(workspace)
+    implementation_path = workspace / "service_config" / "timeouts.py"
+    implementation_path.write_text(
+        implementation_path.read_text(encoding="utf-8").replace(
+            "DEFAULT_REQUEST_TIMEOUT_SECONDS = 3",
+            "DEFAULT_REQUEST_TIMEOUT_SECONDS = 30",
+        ),
+        encoding="utf-8",
+    )
+    answer_path = tmp_path / "answer.txt"
+    trace_path = tmp_path / "trace.txt"
+    answer_path.write_text("Fixed the shared timeout.", encoding="utf-8")
+    trace_path.write_text(
+        _SUCCESSFUL_TRACE.replace(
+            '001 tool_execution_finished {"outcome":"succeeded","tool_name":"list_files"}\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = json.loads((_CASE_ROOT / "case.json").read_text(encoding="utf-8"))
+    assert "list_files" in manifest["trace_expectations"]["process_coverage_tools"]
+    assert _run_acceptance(workspace, answer_path, trace_path).returncode == 0
 
 
 @pytest.mark.asyncio
@@ -364,26 +421,73 @@ async def test_scripted_agent_repairs_case_and_reads_projected_history(
     trace_path = tmp_path / "trace.txt"
     answer_path = tmp_path / "answer.txt"
     answer_path.write_text(result.response.content, encoding="utf-8")
-    successful_tool_lines = [
-        (
-            f"{event.sequence:03d} tool_execution_finished "
-            + json.dumps(
-                {
-                    "outcome": event.payload["outcome"],
-                    "tool_name": event.payload["tool_name"],
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-        )
-        for event in event_ledger.events
-        if event.kind is EventKind.TOOL_EXECUTION_FINISHED
-    ]
-    trace_path.write_text(
-        "Trace run_large_context\n" + "\n".join(successful_tool_lines) + "\n",
-        encoding="utf-8",
-    )
+    trace_path.write_text(_full_trace(event_ledger), encoding="utf-8")
     acceptance = _run_acceptance(workspace_root, answer_path, trace_path)
 
     assert acceptance.returncode == 0, acceptance.stderr
     assert acceptance.stdout.strip() == "PASS large_search_context_repair"
+
+    result_path = tmp_path / "result.json"
+    recorded = record_result(
+        case_root=_CASE_ROOT,
+        workspace=workspace_root,
+        answer_path=answer_path,
+        trace_path=trace_path,
+        output_path=result_path,
+        model="scripted-test-model",
+        agent_exit_code=0,
+    )
+    recorded_result = json.loads(result_path.read_text(encoding="utf-8"))
+
+    assert recorded is True
+    assert recorded_result["case_manifest"]["schema_version"] == 3
+    assert recorded_result["case_manifest"]["trace_expectations"] == {
+        "process_coverage_tools": ["list_files", "search_text", "read_file"],
+        "forbidden_tool_requests": ["create_file"],
+        "require_successful_test_after_change": True,
+    }
+    assert recorded_result["trace_evaluation"] == {
+        "missing_required_tools": [],
+        "requested_forbidden_tools": [],
+        "successful_test_after_last_change": True,
+    }
+    assert recorded_result["verdict"]["trace_passed"] is True
+
+    missing_list_result_directory = tmp_path / "missing-list-result"
+    missing_list_result_directory.mkdir()
+    missing_list_answer_path = missing_list_result_directory / "answer.txt"
+    missing_list_trace_path = missing_list_result_directory / "trace.txt"
+    missing_list_result_path = missing_list_result_directory / "result.json"
+    missing_list_answer_path.write_text(result.response.content, encoding="utf-8")
+    missing_list_trace_path.write_text(
+        _full_trace(event_ledger, excluded_tool_name="list_files"),
+        encoding="utf-8",
+    )
+
+    missing_list_passed = record_result(
+        case_root=_CASE_ROOT,
+        workspace=workspace_root,
+        answer_path=missing_list_answer_path,
+        trace_path=missing_list_trace_path,
+        output_path=missing_list_result_path,
+        model="scripted-test-model",
+        agent_exit_code=0,
+    )
+    missing_list_result = json.loads(
+        missing_list_result_path.read_text(encoding="utf-8")
+    )
+
+    assert missing_list_passed is False
+    assert missing_list_result["accepted"] is True
+    assert missing_list_result["trace_evaluation"] == {
+        "missing_required_tools": ["list_files"],
+        "requested_forbidden_tools": [],
+        "successful_test_after_last_change": True,
+    }
+    assert missing_list_result["verdict"] == {
+        "outcome_passed": True,
+        "operational_passed": True,
+        "budget_passed": True,
+        "trace_passed": False,
+        "passed": False,
+    }

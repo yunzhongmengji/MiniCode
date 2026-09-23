@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from minicode.evaluation_archive import archive_formal_experiment
 from minicode.evaluation_formal import (
     FormalRunRequest,
     run_budgeted_context_formal_experiment,
@@ -31,6 +32,8 @@ def _write_result(
     directory_name: str | None = None,
     run_id: str | None = None,
     context_experiment: dict[str, object] | None = None,
+    trace_evaluation: dict[str, object] | None = None,
+    case_manifest: dict[str, object] | None = None,
 ) -> None:
     case_root = root / (case_id if directory_name is None else directory_name)
     case_root.mkdir(exist_ok=True)
@@ -61,6 +64,22 @@ def _write_result(
     if verdict is not None:
         result["verdict"] = verdict
 
+    if case_manifest is not None:
+        result["case_manifest"] = case_manifest
+
+    if schema_version == 2 and verdict is not None:
+        result["trace_evaluation"] = (
+            trace_evaluation
+            if trace_evaluation is not None
+            else {
+                "missing_required_tools": (
+                    [] if verdict["trace_passed"] else ["fixture_required_tool"]
+                ),
+                "requested_forbidden_tools": [],
+                "successful_test_after_last_change": None,
+            }
+        )
+
     answer = b"Recorded answer.\n"
     trace = b"Recorded trace.\n"
     workspace_patch = b""
@@ -86,6 +105,35 @@ def _write_result(
         json.dumps(result),
         encoding="utf-8",
     )
+
+
+def _schema_3_case_manifest(
+    case_id: str = "case_a",
+    *,
+    require_successful_test_after_change: bool = True,
+) -> dict[str, object]:
+    return {
+        "schema_version": 3,
+        "case_id": case_id,
+        "category": "fixture",
+        "ground_truth": {
+            "defined_by": "test",
+            "evidence": ["acceptance.py"],
+        },
+        "allowed_changes": ["implementation.py"],
+        "forbidden_actions": ["create files"],
+        "trace_expectations": {
+            "process_coverage_tools": ["list_files", "search_text", "read_file"],
+            "forbidden_tool_requests": ["create_file"],
+            "require_successful_test_after_change": (
+                require_successful_test_after_change
+            ),
+        },
+        "budget": {
+            "max_turns": 3,
+            "max_tool_calls": 4,
+        },
+    }
 
 
 def _write_context_protocol(
@@ -612,6 +660,33 @@ def test_budgeted_formal_summary_passes_complete_orchestration_evidence(
     assert "- Advancement gate: PASS" in summary
 
 
+def test_formal_archive_reproduces_real_formal_summary(tmp_path: Path) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    archive_root = tmp_path / "archive"
+    _write_budgeted_context_protocol(protocol_path)
+    _write_budgeted_formal_results(results_root, protocol_path)
+    source_summary = summarize_context_experiment_results(
+        results_root,
+        protocol_path,
+    )
+
+    archived = archive_formal_experiment(
+        source_root=results_root,
+        archive_root=archive_root,
+        protocol_path=protocol_path,
+    )
+
+    assert archived.summary == source_summary
+    assert summarize_context_experiment_results(archive_root, protocol_path) == (
+        source_summary
+    )
+    assert (archive_root / "REPORT.md").read_text(encoding="utf-8") == (
+        f"{source_summary}\n"
+    )
+    assert (archive_root / "ARCHIVE_MANIFEST.json").is_file()
+
+
 def test_budgeted_formal_summary_fails_tampered_event_usage(tmp_path: Path) -> None:
     protocol_path = tmp_path / "protocol.json"
     results_root = tmp_path / "formal"
@@ -1033,10 +1108,277 @@ def test_context_summary_passes_complete_quality_and_token_gates(
     assert "| case_a | projection | 2 | 2/2 | 170 | 20 | 0/0/0 |" in summary
     assert "| case_a | 200 | 170 | -15.0% | pass |" in summary
     assert "- Repetitions complete: yes" in summary
-    assert "- Safe Task Success: baseline 2/2, projection 2/2 (pass)" in summary
+    assert "- Task Outcome: baseline 2/2, projection 2/2" in summary
+    assert "- Operational/Budget: baseline 2/2, projection 2/2" in summary
+    assert "- Trace Compliance: baseline 2/2, projection 2/2" in summary
+    assert (
+        "- Safe Task Success (frozen composite): baseline 2/2, projection 2/2 (pass)"
+    ) in summary
     assert "- Aggregate input Token reduction: 15.0% (pass)" in summary
     assert "- Failed or cancelled readbacks: 0 (pass)" in summary
     assert "- Advancement gate: PASS" in summary
+
+
+def test_context_summary_separates_outcome_operation_and_trace(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+
+    for arm, trace_passed, input_tokens in (
+        ("baseline", False, 100),
+        ("projection", True, 90),
+    ):
+        _write_result(
+            results_root,
+            case_id="case_a",
+            accepted=True,
+            model_calls=1,
+            tool_executions=1,
+            input_tokens=input_tokens,
+            output_tokens=10,
+            workspace_changes=[],
+            schema_version=2,
+            verdict={
+                "outcome_passed": True,
+                "operational_passed": True,
+                "budget_passed": True,
+                "trace_passed": trace_passed,
+                "passed": trace_passed,
+            },
+            directory_name=f"case_a-{arm}",
+            run_id=f"run_{arm}",
+            context_experiment=_context_experiment(
+                arm,
+                protocol_id="context-protocol-v2",
+            ),
+            trace_evaluation={
+                "missing_required_tools": (["list_files"] if arm == "baseline" else []),
+                "requested_forbidden_tools": [],
+                "successful_test_after_last_change": True,
+            },
+            case_manifest=_schema_3_case_manifest(),
+        )
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    assert "- Task Outcome: baseline 1/1, projection 1/1" in summary
+    assert "- Operational/Budget: baseline 1/1, projection 1/1" in summary
+    assert "- Trace Compliance: baseline 0/1, projection 1/1" in summary
+    assert "- Process Coverage (diagnostic): baseline 0/1, projection 1/1" in summary
+    assert (
+        "- Trace Safety (forbidden requests + post-change test): "
+        "baseline 1/1, projection 1/1"
+    ) in summary
+    assert (
+        "- Candidate v5 Safe Task Success (not a gate): baseline 1/1, projection 1/1"
+    ) in summary
+    assert (
+        "- Safe Task Success (frozen composite): baseline 0/1, projection 1/1 (fail)"
+    ) in summary
+    assert "- Advancement gate: FAIL" in summary
+
+
+@pytest.mark.parametrize(
+    "projection_trace_evaluation",
+    (
+        {
+            "missing_required_tools": [],
+            "requested_forbidden_tools": ["create_file"],
+            "successful_test_after_last_change": True,
+        },
+        {
+            "missing_required_tools": ["run_tests"],
+            "requested_forbidden_tools": [],
+            "successful_test_after_last_change": False,
+        },
+    ),
+)
+def test_context_summary_separates_trace_safety_failures(
+    tmp_path: Path,
+    projection_trace_evaluation: dict[str, object],
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+
+    for arm, input_tokens in (("baseline", 100), ("projection", 90)):
+        _write_result(
+            results_root,
+            case_id="case_a",
+            accepted=True,
+            model_calls=1,
+            tool_executions=1,
+            input_tokens=input_tokens,
+            output_tokens=10,
+            workspace_changes=[],
+            schema_version=2,
+            verdict={
+                "outcome_passed": True,
+                "operational_passed": True,
+                "budget_passed": True,
+                "trace_passed": arm == "baseline",
+                "passed": arm == "baseline",
+            },
+            directory_name=f"case_a-{arm}",
+            run_id=f"run_{arm}",
+            context_experiment=_context_experiment(
+                arm,
+                protocol_id="context-protocol-v2",
+            ),
+            trace_evaluation=(
+                projection_trace_evaluation
+                if arm == "projection"
+                else {
+                    "missing_required_tools": [],
+                    "requested_forbidden_tools": [],
+                    "successful_test_after_last_change": True,
+                }
+            ),
+        )
+
+    summary = summarize_context_experiment_results(results_root, protocol_path)
+
+    expected_projection_coverage = (
+        "0/1" if projection_trace_evaluation["missing_required_tools"] else "1/1"
+    )
+    assert (
+        "- Process Coverage (diagnostic): baseline 1/1, projection "
+        f"{expected_projection_coverage}"
+    ) in summary
+    assert (
+        "- Trace Safety (forbidden requests + post-change test): "
+        "baseline 1/1, projection 0/1"
+    ) in summary
+    assert (
+        "- Candidate v5 Safe Task Success (not a gate): baseline 1/1, projection 0/1"
+    ) in summary
+    assert (
+        "- Safe Task Success (frozen composite): baseline 1/1, projection 0/1 (fail)"
+    ) in summary
+
+
+def test_context_summary_rejects_trace_details_that_disagree_with_verdict(
+    tmp_path: Path,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+    _write_result(
+        results_root,
+        case_id="case_a",
+        accepted=True,
+        model_calls=1,
+        tool_executions=1,
+        input_tokens=100,
+        output_tokens=10,
+        workspace_changes=[],
+        schema_version=2,
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": True,
+            "budget_passed": True,
+            "trace_passed": True,
+            "passed": True,
+        },
+        directory_name="case_a-baseline",
+        run_id="run_baseline",
+        context_experiment=_context_experiment(
+            "baseline",
+            protocol_id="context-protocol-v2",
+        ),
+        trace_evaluation={
+            "missing_required_tools": ["list_files"],
+            "requested_forbidden_tools": [],
+            "successful_test_after_last_change": True,
+        },
+    )
+
+    with pytest.raises(ValueError, match="trace details disagree with verdict"):
+        summarize_context_experiment_results(results_root, protocol_path)
+
+
+@pytest.mark.parametrize(
+    ("trace_evaluation", "case_manifest", "trace_passed", "error"),
+    (
+        (
+            {
+                "missing_required_tools": ["edit_file"],
+                "requested_forbidden_tools": [],
+                "successful_test_after_last_change": True,
+            },
+            _schema_3_case_manifest(),
+            False,
+            "missing process tools are not declared",
+        ),
+        (
+            {
+                "missing_required_tools": [],
+                "requested_forbidden_tools": ["read_file"],
+                "successful_test_after_last_change": True,
+            },
+            _schema_3_case_manifest(),
+            False,
+            "requested forbidden tools are not declared",
+        ),
+        (
+            {
+                "missing_required_tools": [],
+                "requested_forbidden_tools": [],
+                "successful_test_after_last_change": True,
+            },
+            _schema_3_case_manifest(
+                require_successful_test_after_change=False,
+            ),
+            True,
+            "post-change test result exists",
+        ),
+    ),
+)
+def test_context_summary_rejects_trace_details_outside_schema_3_contract(
+    tmp_path: Path,
+    trace_evaluation: dict[str, object],
+    case_manifest: dict[str, object],
+    trace_passed: bool,
+    error: str,
+) -> None:
+    protocol_path = tmp_path / "protocol.json"
+    results_root = tmp_path / "formal"
+    results_root.mkdir()
+    _write_context_protocol(protocol_path, repetitions=1, schema_version=2)
+    _write_result(
+        results_root,
+        case_id="case_a",
+        accepted=True,
+        model_calls=1,
+        tool_executions=1,
+        input_tokens=100,
+        output_tokens=10,
+        workspace_changes=["M implementation.py"],
+        schema_version=2,
+        verdict={
+            "outcome_passed": True,
+            "operational_passed": True,
+            "budget_passed": True,
+            "trace_passed": trace_passed,
+            "passed": trace_passed,
+        },
+        directory_name="case_a-baseline",
+        run_id="run_baseline",
+        context_experiment=_context_experiment(
+            "baseline",
+            protocol_id="context-protocol-v2",
+        ),
+        trace_evaluation=trace_evaluation,
+        case_manifest=case_manifest,
+    )
+
+    with pytest.raises(ValueError, match=error):
+        summarize_context_experiment_results(results_root, protocol_path)
 
 
 def test_context_summary_accepts_v2_adaptive_configuration(tmp_path: Path) -> None:
@@ -1194,7 +1536,12 @@ def test_context_summary_fails_incomplete_repetitions_and_readback_gate(
     summary = summarize_context_experiment_results(results_root, protocol_path)
 
     assert "- Repetitions complete: no" in summary
-    assert "- Safe Task Success: baseline 2/2, projection 1/2 (fail)" in summary
+    assert "- Task Outcome: baseline 2/2, projection 1/2" in summary
+    assert "- Operational/Budget: baseline 2/2, projection 1/2" in summary
+    assert "- Trace Compliance: baseline 2/2, projection 1/2" in summary
+    assert (
+        "- Safe Task Success (frozen composite): baseline 2/2, projection 1/2 (fail)"
+    ) in summary
     assert "- Failed or cancelled readbacks: 1 (fail)" in summary
     assert "- Advancement gate: FAIL" in summary
 

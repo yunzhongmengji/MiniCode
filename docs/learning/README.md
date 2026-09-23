@@ -24,5 +24,7 @@
 - [全局复杂度审查与精简建议](simplification-review.md)：重复实现、提前抽象、必要边界，以及分步精简的证据和验收标准。
 - [上下文压缩策略判断](context-compression-strategy.md)：v3 证据、保留窗口、原文恢复边界、推荐方案与小步验收。
 - [上下文压缩完整路线](context-compression-roadmap.md)：最终架构约束、历史漏洞、依赖顺序和各阶段晋级标准。
+- [上下文压缩模块封板总结](context-compression-final.md)：最终调用链、压缩条件、实验结论、边界、面试讲法和简历表述。
+- [Skill 产品化路线](skill-product-roadmap.md)：现有调用链、产品缺口、恢复与信任边界、分步实现和阶段完成标准。
 
 每个阶段结束时检查：文件地图、调用链、核心语法、失败模式、测试证据和复习题是否齐全。

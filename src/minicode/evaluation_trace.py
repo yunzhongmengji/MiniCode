@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from minicode.core.events import EventKind
 from minicode.core.replay import RunReplay
-from minicode.evaluation_case import TraceExpectations
+from minicode.evaluation_case import TraceExpectations, TraceExpectationsV3
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,9 +28,18 @@ class TraceEvaluation:
 def evaluate_trace_expectations(
     *,
     replay: RunReplay,
-    expectations: TraceExpectations,
+    expectations: TraceExpectations | TraceExpectationsV3,
 ) -> TraceEvaluation:
     """Compare successful executions and requests with one case contract."""
+    if isinstance(expectations, TraceExpectationsV3):
+        coverage_tools = expectations.process_coverage_tools
+        require_test_after_change = (
+            expectations.require_successful_test_after_change
+        )
+    else:
+        coverage_tools = expectations.required_successful_tools
+        require_test_after_change = "run_tests" in coverage_tools
+
     successful_tools: set[str] = set()
     requested_tools: set[str] = set()
     last_successful_change_sequence: int | None = None
@@ -57,7 +66,7 @@ def evaluate_trace_expectations(
 
     if (
         last_successful_change_sequence is not None
-        and "run_tests" in expectations.required_successful_tools
+        and require_test_after_change
     ):
         successful_test_after_last_change = (
             last_successful_test_sequence is not None
@@ -67,7 +76,7 @@ def evaluate_trace_expectations(
     return TraceEvaluation(
         missing_required_tools=tuple(
             tool
-            for tool in expectations.required_successful_tools
+            for tool in coverage_tools
             if tool not in successful_tools
         ),
         requested_forbidden_tools=tuple(
@@ -75,7 +84,7 @@ def evaluate_trace_expectations(
             for tool in expectations.forbidden_tool_requests
             if tool in requested_tools
         ),
-        successful_test_after_last_change=(successful_test_after_last_change),
+        successful_test_after_last_change=successful_test_after_last_change,
     )
 
 

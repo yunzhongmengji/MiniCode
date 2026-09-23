@@ -16,6 +16,7 @@ from minicode.context_experiment_protocol import (
 from minicode.core.context_projection_config import (
     BudgetedContextProjectionConfiguration,
 )
+from minicode.evaluation_case import EvaluationCaseManifestV3
 from minicode.evaluation_formal import validate_budgeted_formal_evidence
 from minicode.evaluation_preflight import validate_budgeted_preflight_evidence
 
@@ -48,6 +49,8 @@ class _RecordedEvaluation:
     operational_passed: bool
     budget_passed: bool | None
     trace_passed: bool | None
+    process_coverage_passed: bool | None
+    trace_safety_passed: bool | None
     passed: bool
     agent_exit_code: int
     model: str
@@ -537,6 +540,12 @@ def summarize_context_experiment_results(
     ]
     repetition_complete = True
     safe_successes = {"baseline": 0, "projection": 0}
+    task_outcomes = {"baseline": 0, "projection": 0}
+    operational_budget_successes = {"baseline": 0, "projection": 0}
+    trace_compliances = {"baseline": 0, "projection": 0}
+    process_coverages = {"baseline": 0, "projection": 0}
+    trace_safety_successes = {"baseline": 0, "projection": 0}
+    candidate_v5_safe_successes = {"baseline": 0, "projection": 0}
     input_tokens = {"baseline": 0, "projection": 0}
     output_tokens = {"baseline": 0, "projection": 0}
     failed_or_cancelled_readbacks = 0
@@ -553,6 +562,27 @@ def summarize_context_experiment_results(
             )
             run_count = len(arm_results)
             passed_count = sum(result.passed for result in arm_results)
+            task_outcome_count = sum(result.outcome_passed for result in arm_results)
+            operational_budget_count = sum(
+                result.operational_passed and result.budget_passed is True
+                for result in arm_results
+            )
+            trace_compliance_count = sum(
+                result.trace_passed is True for result in arm_results
+            )
+            process_coverage_count = sum(
+                result.process_coverage_passed is True for result in arm_results
+            )
+            trace_safety_count = sum(
+                result.trace_safety_passed is True for result in arm_results
+            )
+            candidate_v5_safe_count = sum(
+                result.outcome_passed
+                and result.operational_passed
+                and result.budget_passed is True
+                and result.trace_safety_passed is True
+                for result in arm_results
+            )
             arm_input_tokens = sum(result.input_tokens for result in arm_results)
             arm_output_tokens = sum(result.output_tokens for result in arm_results)
             successful_readbacks = sum(
@@ -568,6 +598,12 @@ def summarize_context_experiment_results(
                 run_count == protocol.repetitions_per_case_per_arm
             )
             safe_successes[arm] += passed_count
+            task_outcomes[arm] += task_outcome_count
+            operational_budget_successes[arm] += operational_budget_count
+            trace_compliances[arm] += trace_compliance_count
+            process_coverages[arm] += process_coverage_count
+            trace_safety_successes[arm] += trace_safety_count
+            candidate_v5_safe_successes[arm] += candidate_v5_safe_count
             input_tokens[arm] += arm_input_tokens
             output_tokens[arm] += arm_output_tokens
             failed_or_cancelled_readbacks += failed_readbacks + cancelled_readbacks
@@ -665,7 +701,49 @@ def summarize_context_experiment_results(
             f"- Formal runs: {len(results)}",
             f"- Repetitions complete: {'yes' if repetition_complete else 'no'}",
             (
-                "- Safe Task Success: "
+                "- Task Outcome: "
+                f"baseline {task_outcomes['baseline']}/"
+                f"{protocol.required_safe_task_successes_per_arm}, "
+                f"projection {task_outcomes['projection']}/"
+                f"{protocol.required_safe_task_successes_per_arm}"
+            ),
+            (
+                "- Operational/Budget: "
+                f"baseline {operational_budget_successes['baseline']}/"
+                f"{protocol.required_safe_task_successes_per_arm}, "
+                f"projection {operational_budget_successes['projection']}/"
+                f"{protocol.required_safe_task_successes_per_arm}"
+            ),
+            (
+                "- Trace Compliance: "
+                f"baseline {trace_compliances['baseline']}/"
+                f"{protocol.required_safe_task_successes_per_arm}, "
+                f"projection {trace_compliances['projection']}/"
+                f"{protocol.required_safe_task_successes_per_arm}"
+            ),
+            (
+                "- Process Coverage (diagnostic): "
+                f"baseline {process_coverages['baseline']}/"
+                f"{protocol.required_safe_task_successes_per_arm}, "
+                f"projection {process_coverages['projection']}/"
+                f"{protocol.required_safe_task_successes_per_arm}"
+            ),
+            (
+                "- Trace Safety (forbidden requests + post-change test): "
+                f"baseline {trace_safety_successes['baseline']}/"
+                f"{protocol.required_safe_task_successes_per_arm}, "
+                f"projection {trace_safety_successes['projection']}/"
+                f"{protocol.required_safe_task_successes_per_arm}"
+            ),
+            (
+                "- Candidate v5 Safe Task Success (not a gate): "
+                f"baseline {candidate_v5_safe_successes['baseline']}/"
+                f"{protocol.required_safe_task_successes_per_arm}, "
+                f"projection {candidate_v5_safe_successes['projection']}/"
+                f"{protocol.required_safe_task_successes_per_arm}"
+            ),
+            (
+                "- Safe Task Success (frozen composite): "
                 f"baseline {safe_successes['baseline']}/"
                 f"{protocol.required_safe_task_successes_per_arm}, "
                 f"projection {safe_successes['projection']}/"
@@ -802,13 +880,23 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         result.get("context_experiment"),
         path,
     )
+    case_id = _required_string(result, "case_id", path)
+    process_coverage_passed, trace_safety_passed = _load_trace_dimensions(
+        result,
+        case_id=case_id,
+        schema_version=schema_version,
+        trace_passed=trace_passed,
+        path=path,
+    )
 
     return _RecordedEvaluation(
-        case_id=_required_string(result, "case_id", path),
+        case_id=case_id,
         outcome_passed=outcome_passed,
         operational_passed=operational_passed,
         budget_passed=budget_passed,
         trace_passed=trace_passed,
+        process_coverage_passed=process_coverage_passed,
+        trace_safety_passed=trace_safety_passed,
         passed=passed,
         agent_exit_code=agent_exit_code,
         model=_required_string(result, "model", path),
@@ -828,6 +916,135 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         run_id=_optional_string(run, "run_id", path),
         context_experiment=context_experiment,
     )
+
+
+def _load_trace_dimensions(
+    result: Mapping[str, object],
+    *,
+    case_id: str,
+    schema_version: int,
+    trace_passed: bool | None,
+    path: Path,
+) -> tuple[bool | None, bool | None]:
+    """Split recorded trace facts into process coverage and safety dimensions."""
+    trace_evaluation = result.get("trace_evaluation")
+
+    if trace_evaluation is None:
+        if schema_version == 2:
+            raise ValueError(f"schema 2 result must contain trace_evaluation: {path}")
+
+        return None, None
+
+    if not isinstance(trace_evaluation, Mapping):
+        raise TypeError(f"trace_evaluation must be an object: {path}")
+
+    details = cast(Mapping[str, object], trace_evaluation)
+    # The persisted schema-2 field name is retained for compatibility.  Once
+    # loaded, the value represents process coverage for both case schemas.
+    missing_process_tools = _required_string_sequence(
+        details,
+        "missing_required_tools",
+        path,
+    )
+    requested_forbidden_tools = _required_string_sequence(
+        details,
+        "requested_forbidden_tools",
+        path,
+    )
+    successful_test_after_last_change = details.get("successful_test_after_last_change")
+
+    if (
+        successful_test_after_last_change is not None
+        and type(successful_test_after_last_change) is not bool
+    ):
+        raise TypeError(
+            f"successful_test_after_last_change must be a boolean or null: {path}"
+        )
+
+    _validate_schema_3_trace_dimensions(
+        result,
+        case_id=case_id,
+        missing_process_tools=missing_process_tools,
+        requested_forbidden_tools=requested_forbidden_tools,
+        successful_test_after_last_change=successful_test_after_last_change,
+        path=path,
+    )
+
+    process_coverage_passed = not missing_process_tools
+    trace_safety_passed = (
+        not requested_forbidden_tools and successful_test_after_last_change is not False
+    )
+    detailed_trace_passed = process_coverage_passed and trace_safety_passed
+
+    if trace_passed is not None and detailed_trace_passed != trace_passed:
+        raise ValueError(f"trace details disagree with verdict: {path}")
+
+    return process_coverage_passed, trace_safety_passed
+
+
+def _validate_schema_3_trace_dimensions(
+    result: Mapping[str, object],
+    *,
+    case_id: str,
+    missing_process_tools: tuple[str, ...],
+    requested_forbidden_tools: tuple[str, ...],
+    successful_test_after_last_change: object,
+    path: Path,
+) -> None:
+    """Cross-check classified trace facts against the recorded case contract."""
+    case_manifest = result.get("case_manifest")
+
+    if case_manifest is None:
+        return
+
+    if not isinstance(case_manifest, Mapping):
+        raise TypeError(f"case_manifest must be an object: {path}")
+
+    untyped_manifest = cast(Mapping[str, object], case_manifest)
+
+    if untyped_manifest.get("schema_version") != 3:
+        return
+
+    manifest = EvaluationCaseManifestV3.model_validate_json(
+        json.dumps(untyped_manifest)
+    )
+
+    if manifest.case_id != case_id:
+        raise ValueError(f"case manifest id disagrees with result: {path}")
+
+    expectations = manifest.trace_expectations
+    unexpected_missing = tuple(
+        tool
+        for tool in missing_process_tools
+        if tool not in expectations.process_coverage_tools
+    )
+
+    if unexpected_missing:
+        raise ValueError(
+            "missing process tools are not declared by the case manifest: "
+            f"{unexpected_missing}: {path}"
+        )
+
+    unexpected_forbidden = tuple(
+        tool
+        for tool in requested_forbidden_tools
+        if tool not in expectations.forbidden_tool_requests
+    )
+
+    if unexpected_forbidden:
+        raise ValueError(
+            "requested forbidden tools are not declared by the case manifest: "
+            f"{unexpected_forbidden}: {path}"
+        )
+
+    if (
+        not expectations.require_successful_test_after_change
+        and successful_test_after_last_change is not None
+    ):
+        raise ValueError(
+            "post-change test result exists when the case does not require it: "
+            f"{path}"
+        )
 
 
 def _load_recorded_context_experiment(
@@ -1398,6 +1615,19 @@ def _required_string(
         raise TypeError(f"{key} must be a string: {path}")
 
     return value
+
+
+def _required_string_sequence(
+    source: Mapping[str, object],
+    key: str,
+    path: Path,
+) -> tuple[str, ...]:
+    value = source.get(key)
+
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise TypeError(f"{key} must be an array of strings: {path}")
+
+    return tuple(value)
 
 
 def _required_integer(

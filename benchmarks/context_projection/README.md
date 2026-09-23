@@ -106,8 +106,32 @@ v4 正式实验必须通过唯一批次入口启动，不能手工逐条拼命�
 ```bash
 .venv/bin/python -m minicode.evaluation_formal \
   --protocol benchmarks/context_projection/real_model_protocol_v4.json \
-  --results-root /tmp/minicode-context-v4-formal
+  --results-root /tmp/minicode-context-v4-formal \
+  --archive-root benchmarks/context_projection/results/v4-formal-<commit>-<model>
 ```
 
 该命令要求干净 Git commit 和仓库外的新结果目录；它按协议执行 12 个冻结槽位，保留任务失败样本，缺记录或预算
-越界时停止后续调用，完整后自动运行正式证据与 Advancement gate。真实运行会产生 Provider 调用与人工工具审批。
+越界时停止后续调用，完整后自动运行正式证据、Advancement gate 和持久化归档。运行目录与归档目录必须都不存在；
+归档失败属于基础设施错误，命令不会只输出现场实验结论。真实运行会产生 Provider 调用与人工工具审批。
+
+仓库外运行目录不等于长期归档，尤其不能把 `/tmp` 当成持久证据。正式入口已经强制要求 `--archive-root`。如果手里
+已有旧入口产生的完整外部结果，也可以使用独立归档命令补做归档：
+
+```bash
+.venv/bin/python -m minicode.evaluation_archive \
+  --protocol benchmarks/context_projection/real_model_protocol_v4.json \
+  --source-root /tmp/minicode-context-v4-formal \
+  --archive-root benchmarks/context_projection/results/v4-formal-<commit>-<model>
+```
+
+归档目标必须是不存在的新目录。归档器先在源目录生成正式汇总，再把全部文件复制到目标目录旁的临时 staging，逐文件
+核对 byte 数和 SHA-256，并从 staging 再次生成完全相同的汇总；全部通过后才原子发布最终目录。归档额外保存
+`REPORT.md` 和 `ARCHIVE_MANIFEST.json`。Advancement gate 为 FAIL 的负结果也应归档，不能只保存成功实验。
+
+正式汇总同时显示三层 Trace 信息：旧的 `Trace Compliance` 保留给冻结的 v4 复合门禁；`Process Coverage` 只表示
+要求的工具路径是否全部覆盖，属于诊断项；`Trace Safety` 检查禁用工具请求以及修改后是否成功测试。汇总还会显示
+`Candidate v5 Safe Task Success`，但它目前明确标为 `not a gate`，不能据此改写 v4 结论。
+
+当结果内嵌的 `case_manifest` 为 schema 3 时，汇总器还会交叉校验 Trace 明细：缺失工具必须来自
+`process_coverage_tools`，禁用请求必须来自 `forbidden_tool_requests`，修改后测试结论也必须与 Manifest 开关一致。
+证据之间矛盾时直接拒绝汇总，不能用一组来源不明的 Trace 数字进入正式报告。

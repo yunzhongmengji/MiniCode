@@ -315,7 +315,9 @@ def test_recall_case_requires_repair_and_exact_early_evidence(
     assert acceptance.stdout.strip() == "PASS large_search_context_recall"
 
 
-def test_recall_case_rejects_repeated_search(tmp_path: Path) -> None:
+def test_recall_case_treats_repeated_search_as_efficiency_not_outcome(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     shutil.copytree(_RECALL_CASE_ROOT / "workspace", workspace)
     _initialize_repository(workspace)
@@ -336,7 +338,40 @@ def test_recall_case_rejects_repeated_search(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert _run_acceptance(workspace, answer_path, trace_path).returncode != 0
+    acceptance = _run_acceptance(workspace, answer_path, trace_path)
+
+    assert acceptance.returncode == 0, acceptance.stderr
+    assert acceptance.stdout.strip() == "PASS large_search_context_recall"
+
+
+def test_recall_acceptance_leaves_required_tool_set_to_trace_contract(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    shutil.copytree(_RECALL_CASE_ROOT / "workspace", workspace)
+    _initialize_repository(workspace)
+    implementation_path = workspace / "service_config" / "timeouts.py"
+    implementation_path.write_text(
+        implementation_path.read_text(encoding="utf-8").replace(
+            "DEFAULT_REQUEST_TIMEOUT_SECONDS = 3",
+            "DEFAULT_REQUEST_TIMEOUT_SECONDS = 30",
+        ),
+        encoding="utf-8",
+    )
+    answer_path = tmp_path / "answer.txt"
+    trace_path = tmp_path / "trace.txt"
+    answer_path.write_text(_CORRECT_ANSWER, encoding="utf-8")
+    trace_path.write_text(
+        _SUCCESSFUL_TRACE.replace(
+            '001 tool_execution_finished {"outcome":"succeeded","tool_name":"list_files"}\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = json.loads((_RECALL_CASE_ROOT / "case.json").read_text(encoding="utf-8"))
+    assert "list_files" in manifest["trace_expectations"]["process_coverage_tools"]
+    assert _run_acceptance(workspace, answer_path, trace_path).returncode == 0
 
 
 @pytest.mark.asyncio

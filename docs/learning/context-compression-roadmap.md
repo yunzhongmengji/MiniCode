@@ -440,3 +440,219 @@ B18 已完成正式实验唯一批次入口：
 
 下一步不再增加功能：执行一次只读就绪审计，确认命令、模型环境、Case、Approval、仓库外目标和预算，再提交 B18
 形成干净 HEAD。随后可在交互终端启动用户已经授权的真实 12-run。
+
+B19 已完成 v4 正式 12-run 实验与第一轮失败归因：
+
+1. 两个 Case、每个 Arm 三次的 12 个登记样本全部执行并留下结果；协议快照、正式计划、事件顺序、Provider Usage
+   和结果槽位证据均通过，input/output Token 也没有超过正式预算。
+2. projection 安全成功 `6/6`，baseline 为 `4/6`。baseline 的两次失败不是改错文件或测试失败，而是模型跳过了
+   Case 强制要求的 `list_files`，因此 Trace 验收失败；这两条较短轨迹会干扰 Token 对照，不能把差异全部归因于压缩。
+3. projection 相对各自未投影请求确实产生局部收益：repair 三次累计清理 `14463 bytes`，recall 三次累计清理
+   `28310 bytes`。这证明 projector 在工作，但不等于整条 Agent 轨迹更便宜。
+4. repair 的 projection 比 baseline 多 5 次工具执行，并多 3 次 `read_file`；recall 多 4 次工具执行、多 3 个模型轮次、
+   多 2 次 `read_file` 和 2 次 `git_diff`。recall 的累计 canonical 请求从 baseline 的 `162350 bytes` 增长到
+   projection 的 `212052 bytes`；压缩移除 `28310 bytes` 后仍有 `183742 bytes` 对模型可见。
+5. 最终 Provider input Token 为 baseline `79556`、projection `88673`，projection 总体增加 `11.5%`；repair
+   增加 `7.8%`，recall 增加 `14.7%`，均未达到至少节省 `5%` 且单 Case 回归不超过 `5%` 的晋级门槛。
+6. 当前证据支持的结论是“局部历史清理有效，但没有抵消更长执行轨迹”，而不是“引用压缩完全无效”或“额外轨迹
+   已被证明由压缩导致”。默认 temperature 下模型行为有波动，而且 baseline 两次 Trace 不合格，因果归因仍有限。
+
+下一小步不修改压缩参数。先改进实验可比性设计：把任务结果正确性与人为规定的探索路径分开，决定 `list_files`
+是否应继续作为 Safe Task Success 的硬条件；同时设计能固定或分层统计模型轮次与工具轨迹的对照指标。只有新协议
+能避免“失败轨迹因为提前结束显得更省”后，才讨论 v5 参数或结构化摘要。
+
+B20 已完成结果正确性与必需工具集合的第一层解耦：
+
+1. 两个大搜索 Case 之前在 `case.json.trace_expectations` 和隐藏 `acceptance.py` 中重复检查同一套必需工具；缺少
+   `list_files` 会同时污染 `outcome_passed` 与 `trace_passed`，无法区分“结果错误”和“过程未覆盖”。
+2. 隐藏验收现在不再重复检查必需工具集合，只验证实际行为、允许的文件修改以及回忆 Case 的答案证据；必需工具
+   仍由通用 Trace evaluator 按 `case.json` 独立检查。
+3. 新测试固定了边界：结果和文件修改正确但缺少 `list_files` 时，隐藏验收通过，而 Manifest 仍明确要求该工具，
+   后续结果记录应呈现 `outcome_passed=true`、`trace_passed=false`。
+4. 本步没有删除回忆 Case 的“成功搜索必须恰好一次”。现有 Trace schema 只能表达 required/forbidden，不能表达
+   每个工具的最小或最大成功次数；因此该过程约束暂时仍在隐藏验收中，这是尚未完成的分层。
+5. 正式汇总仍用总 `verdict.passed` 统计 Safe Task Success。也就是说，记录层已经能区分 outcome 与 trace，汇总层
+   还没有使用这一区分；不能在本步后直接重跑实验或声称可比性问题已经解决。
+6. 已归档的 v4 结果属于冻结实验事实，不能用新语义回写或重新解释为 v4 PASS；新的判定语义只能进入新协议。
+
+下一小步只定义并测试新的汇总指标：分别报告 Task Outcome、Operational/Budget Safety 和 Trace Compliance，明确
+哪一项进入 v5 的任务成功门禁。先用伪造结果验证统计语义，不改压缩器，也不调用真实模型。
+
+B21 已完成正式汇总的第一层指标拆分，并暴露出证据生命周期漏洞：
+
+1. 正式汇总现在分别报告 `Task Outcome`、`Operational/Budget` 和 `Trace Compliance`，不再只展示一个无法解释
+   失败来源的 Safe Task Success 数字。
+2. v4 已预注册的晋级门禁仍使用旧的 outcome + operation + budget + trace 复合值，并在输出中标成
+   `Safe Task Success (frozen composite)`；新增展示不能改变已经冻结的实验判定。
+3. 新的伪造结果测试覆盖：baseline 的 outcome、operation、budget 全部通过但 trace 不通过时，三组计数必须分别为
+   `1/1`、`1/1`、`0/1`，冻结复合门禁仍失败。汇总测试共 38 条通过。
+4. 当前拆分仍只是已有顶层 verdict 的展示层。`trace_passed` 内部还混合了缺少必需工具、请求禁止工具和修改后未测试；
+   v5 在定义“安全成功”前还要继续拆开过程覆盖与安全违规，不能直接把整个 trace 从门禁移除。
+5. 尝试用新代码重汇总真实 12-run 时发现，仓库外的 `/tmp/minicode-context-v4-formal` 已被环境清理。实验结束时曾确认
+   12 份结果、计划、事件和协议快照完整，但它们没有立即归档到持久目录，因此现在只能保留已记录的聚合结论，无法
+   重新独立计算原始样本。这是正式实验流程缺陷，不能用测试通过掩盖。
+6. 以后正式运行的“完成”必须包括持久化归档和归档后重汇总；仅在临时目录生成并现场检查不能算完整证据闭环。
+
+下一小步暂停 v5 判定设计，先修证据生命周期：设计一个不会覆盖旧记录的正式归档边界，验证归档包含全部计划、
+事件、协议快照和每个 Run 工件，并从归档目录重新生成同一汇总。只做离线测试，不调用真实模型；丢失的 v4 原始工件
+不能伪造，也不在没有重新授权的情况下重跑。
+
+B22 已建立不覆盖的正式实验归档边界：
+
+1. `evaluation_archive` 先用正式汇总器验证源目录；目标目录必须尚不存在，并且不能位于源结果目录内部。
+2. 所有源文件先复制到目标父目录中的临时 staging；归档器逐文件比较相对路径、byte 数与 SHA-256，拒绝符号链接和
+   不支持的目录项，避免“复制命令成功”被误当成“证据完全一致”。
+3. staging 必须再次通过真实正式汇总，且汇总文本与源目录逐字相同；随后生成 `REPORT.md` 和记录全部源文件哈希的
+   `ARCHIVE_MANIFEST.json`，最后用同一文件系统内的原子重命名发布目标目录。
+4. 目标已存在或复制后验证失败时不会覆盖、发布半成品；源目录始终保留。Advancement FAIL 仍允许归档，因为负结果
+   也是实验事实，归档正确性不等于策略效果通过。
+5. 三条归档状态机测试覆盖完整复制、不覆盖和汇总不一致；另有一条集成测试生成完整 12-run 假证据，真实汇总源与
+   归档结果完全一致。测试没有调用 Provider，也没有伪造已经丢失的 v4 原始工件。
+6. 当前归档仍是正式命令之后单独执行的 CLI。如果操作者忘记运行，临时证据仍可能丢失；因此证据生命周期尚未形成
+   自动闭环。
+
+下一小步把归档作为 `evaluation_formal` 的显式必需输出接入批次入口：运行前同时检查临时目录与归档目录都不存在，
+正式汇总完成后自动归档；只有归档重汇总成功才返回实验结论。继续只用假执行器测试，不调用真实模型。
+
+B23 已把持久化归档接入正式实验唯一入口：
+
+1. `evaluation_formal` 现在强制要求 `--archive-root`。在创建运行目录和发起 Provider 调用前，先后检查仓库外运行目录
+   与归档目标都是新路径，并拒绝归档到运行目录内部。
+2. 12 个槽位完成后，入口先生成现场汇总，再调用 B22 的归档器复制、校验并从 staging 重汇总；归档器返回的汇总
+   必须与现场汇总一致，之后才向用户打印 Advancement 结论和持久归档路径。
+3. Advancement FAIL 仍返回实验结果退出码 `1`，但前提是负结果也已成功归档；配置、证据或归档失败返回基础设施
+   错误码 `2`。这样“策略效果没通过”和“证据没有保存好”不会混为一谈。
+4. CLI 测试固定了完整顺序：环境检查、归档预检、12 次执行、现场汇总、自动归档；归档目标已存在时，第一个样本前
+   就拒绝且不覆盖哨兵文件。相关执行、汇总和归档测试共 52 条通过，没有调用 Provider。
+5. 独立 `evaluation_archive` CLI 继续保留，只用于补归档仍然存在的旧外部结果；正常正式流程不再依赖操作者记住第二条
+   命令。已经消失的 v4 `/tmp` 工件仍无法补救，也没有被伪造或重跑。
+6. 本步运行 Ruff formatter 检查时，它要求重排 `evaluation_formal.py` 和对应测试中的多处既有格式。为避免把无关
+   机械改动混入归档功能，本步只要求 Ruff lint、Mypy、完整测试和 diff check 通过；全文件格式基线应作为独立清理，
+   不能借功能修改顺手制造大面积 diff。
+
+下一小步回到 v5 评测语义，但仍不改压缩参数：拆分 Trace Compliance 内的“缺少推荐探索步骤”和“禁止行为/修改后
+未测试”等安全约束，明确 Safe Task Success 只应排除真正不安全或不正确的运行，而把探索路径覆盖作为独立诊断指标。
+
+B24 已完成 Trace 语义拆分的离线实现：
+
+1. `result.json` 原本已经保存 `missing_required_tools`、`requested_forbidden_tools` 和
+   `successful_test_after_last_change`，所以本步没有修改 Agent 运行时，也没有发明无法从旧证据验证的新事实。
+2. `Process Coverage` 只检查必需工具是否全部成功执行。漏掉 `list_files`、`search_text` 等约定路径会降低该诊断指标，
+   但不再自动被解释成“发生了安全违规”。
+3. `Trace Safety` 检查两类真正需要阻止安全成功的问题：请求 Manifest 禁止的工具；修改文件后没有一次位于最后修改
+   之后的成功 `run_tests`。后者同时可能表现为缺少 `run_tests`，因此会让过程覆盖和安全两项都失败。
+4. 汇总新增 `Candidate v5 Safe Task Success (not a gate)`，计算方式是任务结果正确、运行正常、预算通过且 Trace Safety
+   通过；它刻意不要求 Process Coverage。该数值目前只是候选语义，尚未写入协议或晋级门禁。
+5. 旧 `Trace Compliance` 和 `Safe Task Success (frozen composite)` 完整保留，v4 Advancement gate 仍使用原复合值。
+   因此新展示不会把已失败的 v4 实验重新解释成通过。
+6. 汇总器会校验 Trace 明细重新计算出的旧 Trace 结果必须与 `verdict.trace_passed` 一致，避免展示层在证据矛盾时
+   悄悄给出看似合理的分层数字。
+
+下一小步不立即注册 v5，也不调用真实模型。先审查 Case Manifest 的表达能力：当前
+`required_successful_tools` 仍把“推荐探索工具”和“正确性/安全必需工具”写在同一个数组里。应给 v5 设计显式分类，
+避免仅靠汇总器根据工具名字猜测语义，并用 Manifest 解析测试固定向后兼容边界。
+
+B25 已建立显式 Trace 分类的 Case Manifest schema 3：
+
+1. schema 3 用 `process_coverage_tools` 表达推荐调查路径，用 `forbidden_tool_requests` 和
+   `require_successful_test_after_change` 表达安全约束。最终结果正确性继续完全归隐藏 `acceptance.py`，不再发明一组
+   “正确性工具”与结果验收重复。
+2. schema 2 的 `required_successful_tools` 原样保留，现有 Case 和冻结 v4 结果无需迁移；加载器按顶层
+   `schema_version` 明确选择模型，不会把旧数据静默解释成新语义。
+3. schema 3 采用 `extra=forbid`，因此混写 `required_successful_tools` 会立即解析失败，而不是悄悄忽略旧字段。
+4. Trace evaluator 已同时支持两个 schema。schema 2 继续从 `required_successful_tools` 推导旧行为；schema 3 直接读取
+   显式过程工具和修改后测试开关，避免按照工具名称猜测新语义。
+5. 为保持 `result.json` schema 2 的读取兼容，底层明细字段暂时仍叫 `missing_required_tools`；对于 Case schema 3，
+   它装的是缺失的 `process_coverage_tools`。后续若升级结果 schema，应再更名，不能在本步破坏已有证据读取。
+6. 本步只增加解析模型、双 schema evaluator 和离线测试，没有迁移任何已提交 Case、注册 v5 协议或调用真实模型。
+
+下一小步选择一个大搜索 Case 作为 schema 3 迁移样本，先逐项说明为什么 `list_files/search_text/read_file` 属于过程
+诊断、为什么禁用 `create_file` 和修改后测试属于安全约束；只迁移一个 Case 并验证记录结果，不一次改完全部 Case。
+
+B26 已迁移单个 `large_search_context_repair` 样本并打通结果记录：
+
+1. `list_files`、`search_text`、`read_file` 进入 `process_coverage_tools`：它们描述调查路径是否完整，但漏掉其中一个并不
+   自动证明最终修复错误或运行不安全。
+2. `edit_file` 不再出现在 Trace 工具要求中。该 Case 的隐藏验收会执行实际行为检查，并限制只允许修改
+   `service_config/timeouts.py`，因此最终是否正确修改已有直接证据，无需再用一次工具调用间接证明。
+3. `run_tests` 改由 `require_successful_test_after_change=true` 表达。它要求最后一次成功修改之后存在成功测试，比“某处
+   调用过一次 run_tests”更严格，也更接近工程安全语义。
+4. `create_file` 保留在 `forbidden_tool_requests`；因为 Case 禁止创建额外项目文件，请求该工具本身就是安全边界违规。
+5. 脚本 Agent 的完整事件账本现在会交给真实 `record_result`。完整路径生成的结果记录 schema 3 Manifest、无缺失过程
+   工具、无禁用请求、修改后测试为 true，最终 Trace 通过。
+6. 同一正确补丁另生成一条仅删除 `list_files` 事件的结果：隐藏验收仍通过，修改后测试仍为 true，但
+   `missing_required_tools=["list_files"]`、旧 `trace_passed=false`。这固定了“过程覆盖不足不等于结果错误或安全失败”
+   的原始证据形状。
+7. 顶层 `result.json.schema_version` 目前仍是 2，而嵌套的 `case_manifest.schema_version` 是 3；两者描述不同对象，前者是
+   结果文件格式，后者是 Case 合同格式，不能因为数字不同就误认为冲突。
+
+下一小步暂不迁移第二个 Case。先让正式汇总在遇到 schema 3 结果时直接按 Manifest 分类读取，而不是继续把
+`missing_required_tools` 全部视为过程覆盖；并加入一个使用真实记录结果形状的汇总测试。完成后再判断是否注册 v5。
+
+B27 已把 schema 3 Case 合同接入正式汇总的证据校验：
+
+1. 汇总器先读取结果内嵌的 `case_manifest`。当其版本为 3 时，使用与 Case 加载器相同的
+   `EvaluationCaseManifestV3` 模型重新验证完整快照，而不是只读取几个松散字段。
+2. `missing_required_tools` 中每个值必须属于 Manifest 的 `process_coverage_tools`；例如把 `edit_file` 篡改成缺失过程
+   工具会直接拒绝汇总，因为 schema 3 已明确把结果正确性和过程诊断分开。
+3. `requested_forbidden_tools` 同样必须来自 Manifest 的 `forbidden_tool_requests`；如果 Manifest 没有禁止某工具，结果
+   不能凭空把它统计成安全违规。
+4. 当 Manifest 的 `require_successful_test_after_change=false` 时，结果必须把
+   `successful_test_after_last_change` 记录为 null；否则说明记录器与合同采用了不同语义。
+5. 实现时发现严格 Pydantic 模型的 Python 对象入口不会把 `list` 转成 `tuple`，而 JSON 入口会按照 Case 文件的真实
+   解析路径完成该转换。汇总器最初对已解码字典调用 `model_validate` 导致合法 Manifest 被拒绝，现已统一改成
+   `model_validate_json`，避免同一份 JSON 在两个入口产生不同结论。
+6. 合法 schema 3 假结果固定了 `list_files` 缺失属于 Process Coverage 且 Trace Safety 通过；篡改为缺失
+   `edit_file` 的结果固定为拒绝汇总。旧 schema 2 假结果可以暂时不带内嵌 Manifest，兼容现有离线测试和冻结证据。
+
+下一小步先不注册 v5。迁移第二个正式 Case `large_search_context_recall` 到 schema 3，并特别处理它仍藏在
+`acceptance.py` 中的“搜索必须恰好一次”过程约束：决定该约束应进入可表达的过程诊断，还是从隐藏结果验收移除，
+不能在没有分类的情况下直接照搬。
+
+B28 已迁移 `large_search_context_recall` 并结束 Trace 语义扩张：
+
+1. recall Case 与 repair Case 使用相同 schema 3 分类：`list_files/search_text/read_file` 是 Process Coverage，
+   `create_file` 是禁止请求，最后一次修改后必须成功测试。
+2. `edit_file` 和 `run_tests` 不再混入普通过程工具。最终修改正确性由隐藏行为验收负责，测试时序由
+   `require_successful_test_after_change` 负责。
+3. 隐藏验收已删除“成功 search_text 必须恰好一次”。重复搜索会增加 Tool Execution、模型轮次和 Provider Token，
+   因而仍会在端到端成本结果中受到惩罚；但它不再把正确修复伪装成任务失败。
+4. 完全不搜索仍会使 Process Coverage 失败，因为 `search_text` 仍在 `process_coverage_tools` 中。也就是说，本步删除的
+   是最大次数硬门禁，不是取消对调查路径的观察。
+5. 测试固定了重复搜索时隐藏验收通过，并继续固定缺少 `list_files` 时隐藏验收通过、Manifest 负责报告过程缺失。
+6. 已保存的 v3/v4 Preflight 结果和其中内嵌的旧 schema 2 Manifest 不做回写；它们是历史证据。未来运行必须使用新的
+   Case 语义，不能把新旧结果混成同一批实验。
+
+上下文压缩功能从此不再新增 Trace 字段或调整压缩参数。下一小步进入封板阶段的代码清理审计：检查 B20～B28 是否
+留下重复兼容分支、含混命名或只为测试存在的路径；只删除明确冗余，不增加功能。清理通过后编写最终架构和面试总结，
+随后转入 Skill 模块。
+
+### B29：封板前代码清理审计
+
+B29 没有增加功能，而是逐项判断 B20～B28 的新增代码能否删除或合并：
+
+1. `EvaluationCaseManifest`/`TraceExpectations` 与对应的 V3 类型看起来相似，但前者负责读取已经保存的 schema 2
+   Case 和实验证据，后者负责显式区分过程覆盖与安全要求。两套类型承担不同的兼容边界，合并会让旧证据被新语义
+   静默重解释，因此保留。
+2. 归档模块的假汇总器测试验证复制、哈希、不覆盖和失败不发布；正式汇总集成测试验证真实结果复制后仍能重算出
+   同一结论。两者覆盖的故障层不同，不属于重复测试，因此保留。
+3. 正式汇总继续读取持久化字段 `missing_required_tools`，因为改名会破坏旧 `result.json`；进入内存后局部变量改名为
+   `missing_process_tools`，明确它在 schema 3 中只代表过程覆盖，不再暗示最终结果正确性。
+4. Coding Agent README 原先同时写了“现有 Case 都是 schema 2”和“两个 Case 已迁移 schema 3”，现改为“历史 Case
+   默认使用 schema 2，迁移或新建 Case 可以使用 schema 3”，消除自相矛盾。
+5. 清理了一处无意义的赋值括号。其余计数字典虽然数量较多，但分别对应最终结果、运行/预算、旧 Trace、过程覆盖、
+   Trace 安全和候选 v5 组合，删除任意一个都会丢失一层可解释证据，不做为了行数而合并的重构。
+
+本阶段的结束标准是：不再存在已确认的死分支、重复验证或相互矛盾的说明；完整测试、Ruff、Mypy 和 diff check 全部
+通过。达到该标准后只再编写一次最终架构、实验结论和面试讲解，不继续改上下文压缩实现，然后进入 Skill 模块。
+
+### B30：上下文压缩模块封板
+
+最终学习入口已整理到 [context-compression-final.md](context-compression-final.md)。它统一解释 canonical history 与
+model-visible request 的边界、逐轮投影链路、压缩触发条件、Retention 与 Editing 的分工、Checkpoint 回读、JSON
+协议、评测分层、v1～v4 实验证据、已知限制及面试/简历表达。
+
+封板结论不是“已经证明节省 Token”，而是“已经实现并用真实 Preflight 验证可触发、可恢复、可审计的预算式上下文
+投影闭环”。v4 正式 12-run 曾执行且现场结论未通过收益门槛，但原始 `/tmp` 工件后来丢失，不能作为当前可复验的完整
+证据包；这直接推动了强制归档链路。除非之后注册并执行适配当前 Case 语义的新正式实验，本路线不再修改压缩参数或
+新增 Trace 语义，后续开发转入 Skill 模块。

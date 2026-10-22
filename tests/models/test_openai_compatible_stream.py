@@ -57,7 +57,7 @@ def _make_text_chunk(
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion.chunk",
         }
     )
@@ -139,7 +139,7 @@ def _make_tool_chunk(
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion.chunk",
         }
     )
@@ -328,7 +328,7 @@ async def test_openai_compatible_model_streams_text_request() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     request = ModelRequest(
         conversation=(
@@ -356,7 +356,7 @@ async def test_openai_compatible_model_streams_text_request() -> None:
         ),
     ]
     create_completion.assert_awaited_once_with(
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         messages=[
             {
                 "role": "system",
@@ -397,7 +397,7 @@ async def test_openai_stream_translates_authentication_error() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     request = ModelRequest(
         conversation=(
@@ -448,7 +448,7 @@ async def test_openai_stream_translates_connection_error_during_iteration() -> N
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     request = ModelRequest(
         conversation=(
@@ -502,7 +502,7 @@ async def test_openai_compatible_model_streams_with_tools_and_extra_body() -> No
     )
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         extra_body={
             "enable_thinking": False,
         },
@@ -530,7 +530,7 @@ async def test_openai_compatible_model_streams_with_tools_and_extra_body() -> No
         ),
     ]
     create_completion.assert_awaited_once_with(
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         messages=[
             {
                 "role": "user",
@@ -558,7 +558,7 @@ def _make_usage_chunk(
             "id": "chatcmpl_test",
             "choices": [],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion.chunk",
             "usage": {
                 "prompt_tokens": prompt_tokens,

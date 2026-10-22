@@ -87,6 +87,8 @@ def registered_context_run_configuration(
 
 def build_coding_run_arguments(
     case_root: Path,
+    *,
+    skills_root: Path | None = None,
 ) -> tuple[str, ...]:
     """Build CLI arguments from one validated evaluation case."""
     resolved_case_root = case_root.resolve(strict=True)
@@ -98,7 +100,7 @@ def build_coding_run_arguments(
     if not task.strip():
         raise ValueError("evaluation task must not be blank")
 
-    return (
+    arguments: tuple[str, ...] = (
         "run",
         task.strip(),
         "--max-turns",
@@ -107,6 +109,10 @@ def build_coding_run_arguments(
         str(manifest.budget.max_tool_calls),
         "--trace",
     )
+    if skills_root is not None:
+        arguments += ("--skills-root", str(skills_root))
+
+    return arguments
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="Evaluation case containing case.json and task.txt.",
+    )
+    parser.add_argument(
+        "--skills-root",
+        type=Path,
+        help="Use Skill instructions from this trusted local directory.",
     )
     parser.add_argument(
         "--arm",
@@ -141,6 +152,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the case task in the current working directory."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.skills_root is not None and args.context_protocol is not None:
+        parser.error(
+            "--skills-root cannot be combined with --context-protocol: "
+            "registered context experiments do not include Skill instructions"
+        )
     arm = EvaluationArm.BASELINE if args.arm is None else args.arm
     registered_configuration: RegisteredContextRunConfiguration | None = None
 
@@ -159,7 +175,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     return cli.main(
-        build_coding_run_arguments(args.case_root),
+        build_coding_run_arguments(args.case_root, skills_root=args.skills_root),
         max_inline_tool_result_bytes=(
             context_threshold_for_arm(arm)
             if registered_configuration is None
@@ -175,6 +191,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if registered_configuration is None
             else registered_configuration.expected_model
         ),
+        model_max_retries=0,
     )
 
 

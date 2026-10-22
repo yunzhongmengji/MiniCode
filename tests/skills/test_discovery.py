@@ -27,6 +27,7 @@ def _write_skill(
     (skill_directory / "manifest.json").write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "name": manifest_name,
                 "description": description,
                 "entrypoint": "SKILL.md",
@@ -111,4 +112,58 @@ async def test_file_catalog_loader_requires_name_to_match_directory(
             "manifest name 'different-name' does not match directory 'pytest-debugging'"
         ),
     ):
+        await loader.load()
+
+
+@pytest.mark.asyncio
+async def test_file_catalog_loader_rejects_unknown_manifest_field(
+    tmp_path: Path,
+) -> None:
+    skills_root = tmp_path / "skills"
+    skill_directory = skills_root / "testing"
+    skill_directory.mkdir(parents=True)
+    (skill_directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "testing",
+                "description": "Diagnose test failures.",
+                "descripton": "Typo that would otherwise be ignored.",
+                "entrypoint": "SKILL.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+    loader = FileSkillCatalogLoader(skill_root=Workspace(root=skills_root))
+
+    with pytest.raises(
+        SkillCatalogLoadError,
+        match="unknown fields: descripton",
+    ):
+        await loader.load()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", (2, True, "1", None))
+async def test_file_catalog_loader_rejects_invalid_schema_version(
+    tmp_path: Path,
+    version: object,
+) -> None:
+    skills_root = tmp_path / "skills"
+    skill_directory = skills_root / "testing"
+    skill_directory.mkdir(parents=True)
+    (skill_directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": version,
+                "name": "testing",
+                "description": "Diagnose test failures.",
+                "entrypoint": "SKILL.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+    loader = FileSkillCatalogLoader(skill_root=Workspace(root=skills_root))
+
+    with pytest.raises(SkillCatalogLoadError, match="requires schema_version 1"):
         await loader.load()

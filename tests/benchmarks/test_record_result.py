@@ -19,6 +19,7 @@ from minicode.evaluation_result import (
     summarize_budgeted_context_experiment,
     summarize_context_experiment,
     summarize_registered_context_experiment,
+    summarize_skill_experiment,
     summarize_trace,
 )
 from minicode.evaluation_run import EvaluationArm
@@ -126,10 +127,110 @@ def test_trace_parser_reuses_validated_replay_summary() -> None:
         "tool_execution_count": 1,
         "input_tokens": 12,
         "output_tokens": 5,
+        "model_calls_with_usage": 1,
+        "model_calls_missing_usage": 0,
+        "usage_complete": True,
         "tool_requests": {
             "read_file": 1,
         },
     }
+
+
+@pytest.mark.parametrize(
+    ("finish_payload", "expected_input_tokens"),
+    (
+        ('{"turn": 1, "outcome": "succeeded"}', 0),
+        ('{"turn": 1, "outcome": "succeeded", "input_tokens": 12}', 12),
+        ('{"turn": 1, "outcome": "failed"}', 0),
+    ),
+)
+def test_trace_summary_marks_missing_model_usage(
+    finish_payload: str,
+    expected_input_tokens: int,
+) -> None:
+    trace = f"""Trace run_missing_usage
+001 run_started {{"initial_history_items": 1}}
+002 model_call_started {{"turn": 1}}
+003 model_call_finished {finish_payload}
+004 run_finished {{"outcome": "failed", "stop_reason": "completed", "turns_used": 1}}
+"""
+
+    summary = summarize_trace(parse_trace(trace))
+
+    assert summary["model_calls_with_usage"] == 0
+    assert summary["model_calls_missing_usage"] == 1
+    assert summary["usage_complete"] is False
+    assert summary["input_tokens"] == expected_input_tokens
+
+
+def test_trace_summary_marks_unfinished_model_call_as_missing_usage() -> None:
+    trace = """Trace run_unfinished_model_call
+001 run_started {"initial_history_items": 1}
+002 model_call_started {"turn": 1}
+003 run_finished {"outcome": "failed", "stop_reason": "completed", "turns_used": 1}
+"""
+
+    summary = summarize_trace(parse_trace(trace))
+
+    assert summary["model_calls_missing_usage"] == 1
+    assert summary["usage_complete"] is False
+
+
+def test_trace_summary_rejects_more_finishes_than_model_starts() -> None:
+    trace = """Trace run_extra_model_finish
+001 run_started {"initial_history_items": 1}
+002 model_call_started {"turn": 1}
+003 model_call_finished {"turn": 1, "outcome": "succeeded", "input_tokens": 12, "output_tokens": 5}
+004 model_call_finished {"turn": 1, "outcome": "failed"}
+005 run_finished {"outcome": "failed", "stop_reason": "completed", "turns_used": 1}
+"""
+
+    with pytest.raises(ValueError, match="more model call finishes"):
+        summarize_trace(parse_trace(trace))
+
+
+def test_skill_treatment_records_no_match_without_claiming_skill_loaded() -> None:
+    trace = """Trace run_skill_no_match
+001 run_started {"initial_history_items": 1}
+002 skill_selection_finished {"selected": []}
+003 model_call_started {"turn": 1}
+004 model_call_finished {"turn": 1, "outcome": "succeeded"}
+005 run_finished {"outcome": "succeeded", "stop_reason": "completed", "turns_used": 1}
+"""
+
+    assert summarize_skill_experiment(parse_trace(trace), arm="treatment") == {
+        "arm": "treatment",
+        "selected_skill_names": [],
+        "loaded_skill_names": [],
+    }
+
+
+def test_skill_treatment_preserves_failed_load_as_recordable_failure() -> None:
+    trace = """Trace run_skill_load_failed
+001 run_started {"initial_history_items": 1}
+002 skill_selection_finished {"selected": [{"skill_name": "inventory-contract-review", "score": 2}]}
+003 skill_load_started {"skill_name": "inventory-contract-review", "rank": 1, "score": 2}
+004 skill_load_finished {"skill_name": "inventory-contract-review", "outcome": "failed"}
+"""
+
+    assert summarize_skill_experiment(parse_trace(trace), arm="treatment") == {
+        "arm": "treatment",
+        "selected_skill_names": ["inventory-contract-review"],
+        "loaded_skill_names": [],
+    }
+
+
+def test_skill_treatment_rejects_load_events_for_a_different_skill() -> None:
+    trace = """Trace run_skill_bad_load
+001 run_started {"initial_history_items": 1}
+002 skill_selection_finished {"selected": [{"skill_name": "inventory-contract-review", "score": 2}]}
+003 skill_load_started {"skill_name": "other-skill", "rank": 1, "score": 2}
+004 skill_load_finished {"skill_name": "other-skill", "outcome": "succeeded"}
+005 model_call_started {"turn": 1}
+"""
+
+    with pytest.raises(ValueError, match="load events disagree"):
+        summarize_skill_experiment(parse_trace(trace), arm="treatment")
 
 
 def test_context_experiment_summary_validates_trace_configuration() -> None:

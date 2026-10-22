@@ -13,7 +13,7 @@ from minicode.core.context_projection_config import (
 from minicode.core.context_retrieval import RunToolResultSource
 from minicode.core.events import EventLedger
 from minicode.core.messages import Message, MessageRole
-from minicode.core.model import Model
+from minicode.core.model import Model, ModelRunBudget
 from minicode.core.query_loop import QueryLoop, RunResult
 from minicode.core.tool_approval import ToolApprover
 from minicode.core.tool_policy import (
@@ -22,6 +22,7 @@ from minicode.core.tool_policy import (
     PolicyOutcome,
     ToolPolicy,
 )
+from minicode.skills.context import SkillContextProvider
 from minicode.tools.create_file import CreateFileTool
 from minicode.tools.dispatcher import ToolDispatcher
 from minicode.tools.edit_file import EditFileTool
@@ -137,7 +138,9 @@ def build_coding_agent(
     approver: ToolApprover | None = None,
     max_turns: int = 8,
     max_tool_calls: int = 8,
+    model_budget: ModelRunBudget | None = None,
     total_timeout_seconds: float | None = None,
+    skill_context_provider: SkillContextProvider | None = None,
     max_inline_tool_result_bytes: int | None = None,
     budgeted_context_configuration: (
         BudgetedContextProjectionConfiguration | None
@@ -232,6 +235,7 @@ def build_coding_agent(
     )
     query_loop = QueryLoop(
         model=model,
+        model_budget=model_budget,
         max_turns=max_turns,
         tool_runtime=dispatcher,
         max_tool_calls=max_tool_calls,
@@ -242,6 +246,7 @@ def build_coding_agent(
         event_ledger=event_ledger,
         checkpoint_store=checkpoint_store,
         instructions=(_CODING_AGENT_INSTRUCTION,),
+        skill_context_provider=skill_context_provider,
         context_projector=context_projector,
     )
 

@@ -61,6 +61,25 @@ def test_run_checkpoint_snapshots_resume_state() -> None:
     )
     assert checkpoint.turns_used == 1
     assert checkpoint.tool_calls_used == 1
+    assert checkpoint.skill_instructions is None
+
+
+def test_run_checkpoint_rejects_invalid_skill_instructions() -> None:
+    base = {
+        "run_id": "run_skill",
+        "message_history": (),
+        "turns_used": 1,
+        "tool_calls_used": 0,
+    }
+
+    with pytest.raises(TypeError, match="string or None"):
+        RunCheckpoint(**base, skill_instructions=123)
+
+    with pytest.raises(ValueError, match="whitespace only"):
+        RunCheckpoint(**base, skill_instructions="  \n")
+
+    with pytest.raises(ValueError, match="160000 bytes"):
+        RunCheckpoint(**base, skill_instructions="中" * 54_000)
 
 
 def test_in_memory_checkpoint_store_returns_latest() -> None:

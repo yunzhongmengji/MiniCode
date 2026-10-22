@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -10,6 +11,16 @@ from minicode.core.checkpoint_codec import (
     checkpoint_to_json,
 )
 from minicode.core.checkpoints import RunCheckpoint
+
+
+def workspace_checkpoint_root(*, workspace_root: Path, state_home: Path) -> Path:
+    """Locate host state for a canonical, absolute Workspace.root."""
+    if not workspace_root.is_absolute():
+        raise ValueError("workspace_root must be absolute")
+    if not state_home.is_absolute():
+        raise ValueError("state_home must be absolute")
+    workspace_key = hashlib.sha256(str(workspace_root).encode("utf-8")).hexdigest()
+    return state_home / "minicode" / "checkpoints" / workspace_key
 
 
 class FileCheckpointStore:
@@ -22,6 +33,8 @@ class FileCheckpointStore:
             parents=True,
             exist_ok=True,
         )
+        if os.name == "posix" and stat.S_IMODE(self._root.stat().st_mode) & 0o077:
+            raise PermissionError("checkpoint directory must not be group-accessible")
 
     def save(self, checkpoint: RunCheckpoint) -> None:
         """Atomically replace the latest checkpoint for one run."""

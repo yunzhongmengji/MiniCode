@@ -1,3 +1,5 @@
+import pytest
+
 from minicode.skills.catalog import (
     SkillCatalog,
 )
@@ -92,6 +94,8 @@ def test_keyword_skill_router_meets_routing_benchmark() -> None:
     )
     assert report.failures == ()
     assert report.passed is True
+    assert all(result.missing_skill_names == () for result in report.results)
+    assert all(result.unexpected_skill_names == () for result in report.results)
 
 
 def test_routing_report_exposes_failed_cases() -> None:
@@ -113,3 +117,55 @@ def test_routing_report_exposes_failed_cases() -> None:
     assert report.accuracy == 0.0
     assert report.failures == (failed_result,)
     assert report.passed is False
+    assert report.failures[0].missing_skill_names == ("pytest-debugging",)
+    assert report.failures[0].unexpected_skill_names == ("documentation",)
+
+
+@pytest.mark.parametrize(
+    ("expected", "selected", "missing", "unexpected", "exact_match"),
+    (
+        (("documentation",), ("documentation",), (), (), True),
+        (("documentation",), (), ("documentation",), (), False),
+        ((), ("documentation",), (), ("documentation",), False),
+        (
+            ("pytest-debugging",),
+            ("documentation",),
+            ("pytest-debugging",),
+            ("documentation",),
+            False,
+        ),
+        ((), (), (), (), True),
+        (
+            ("documentation", "pytest-debugging"),
+            ("pytest-debugging", "documentation"),
+            (),
+            (),
+            False,
+        ),
+        (
+            ("security-audit", "pytest-debugging", "documentation"),
+            ("documentation", "z-extra", "a-extra"),
+            ("security-audit", "pytest-debugging"),
+            ("z-extra", "a-extra"),
+            False,
+        ),
+    ),
+    ids=("matched", "missing", "unexpected", "wrong", "empty", "order-only", "mixed"),
+)
+def test_routing_result_identifies_missing_and_unexpected_skills(
+    expected: tuple[str, ...],
+    selected: tuple[str, ...],
+    missing: tuple[str, ...],
+    unexpected: tuple[str, ...],
+    exact_match: bool,
+) -> None:
+    result = SkillRoutingResult(
+        case=SkillRoutingCase(query="Example task.", expected_skill_names=expected),
+        selected_skill_names=selected,
+    )
+
+    assert result.missing_skill_names == missing
+    assert result.unexpected_skill_names == unexpected
+    assert result.exact_match is exact_match
+    assert tuple(result.case.expected_skill_names) == expected
+    assert tuple(result.selected_skill_names) == selected

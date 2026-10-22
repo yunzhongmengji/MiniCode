@@ -57,6 +57,7 @@ class _CompletionCreateOptions(TypedDict, total=False):
     """Optional keyword arguments for an SDK completion request."""
 
     extra_body: object
+    max_completion_tokens: int
 
 
 @dataclass(slots=True)
@@ -418,6 +419,7 @@ class OpenAICompatibleModel:
         client: AsyncOpenAI,
         model: str,
         extra_body: Mapping[str, object] | None = None,
+        max_output_tokens: int | None = None,
     ) -> None:
         if not isinstance(model, str):
             raise TypeError("model must be a string")
@@ -430,6 +432,12 @@ class OpenAICompatibleModel:
         ):
             raise TypeError("extra_body must be a mapping")
 
+        if max_output_tokens is not None:
+            if type(max_output_tokens) is not int:
+                raise TypeError("max_output_tokens must be an integer or None")
+            if max_output_tokens <= 0:
+                raise ValueError("max_output_tokens must be greater than zero")
+        self._max_output_tokens = max_output_tokens
         self._client = client
         self._model = model
         self._extra_body = dict(extra_body) if extra_body is not None else None
@@ -444,6 +452,9 @@ class OpenAICompatibleModel:
             tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
         ]
         create_options: _CompletionCreateOptions = {}
+
+        if self._max_output_tokens is not None:
+            create_options["max_completion_tokens"] = self._max_output_tokens
 
         if self._extra_body is not None:
             create_options["extra_body"] = self._extra_body
@@ -480,6 +491,9 @@ class OpenAICompatibleModel:
             tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
         ]
         create_options: _CompletionCreateOptions = {}
+
+        if self._max_output_tokens is not None:
+            create_options["max_completion_tokens"] = self._max_output_tokens
 
         if self._extra_body is not None:
             create_options["extra_body"] = self._extra_body

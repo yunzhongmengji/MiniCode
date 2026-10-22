@@ -1,3 +1,7 @@
+import json
+import os
+from pathlib import Path
+
 import pytest
 
 from minicode import cli
@@ -27,6 +31,45 @@ def test_dry_run_reports_task_without_execution(capsys) -> None:
     assert "Dry run: no files were changed." in captured.out
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits only")
+def test_run_reports_existing_shared_checkpoint_directory(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    class RecordingClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    client = RecordingClient()
+    state_home = tmp_path / "state"
+    checkpoint_root = cli._checkpoint_root(
+        tmp_path,
+        {"XDG_STATE_HOME": str(state_home)},
+    )
+    checkpoint_root.mkdir(parents=True)
+    checkpoint_root.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setattr(cli, "build_dashscope_client", lambda config: client)
+
+    def unexpected_model(*args, **kwargs):
+        pytest.fail("model must not be built for a shared checkpoint directory")
+
+    monkeypatch.setattr(cli, "build_dashscope_model", unexpected_model)
+
+    assert cli.main(["run", "Inspect README.md."]) == 2
+
+    captured = capsys.readouterr()
+    assert "Checkpoint error: could not open checkpoint store" in captured.err
+    assert "must not be group-accessible" in captured.err
+    assert client.closed is True
+
+
 def test_run_executes_coding_task_and_prints_trace(monkeypatch, capsys) -> None:
     received_calls: list[tuple[str, int, int, int | None]] = []
 
@@ -40,9 +83,13 @@ def test_run_executes_coding_task_and_prints_trace(monkeypatch, capsys) -> None:
         max_inline_tool_result_bytes: int | None,
         budgeted_context_configuration,
         expected_model,
+        skills_root,
+        model_max_retries,
     ) -> RunResult:
         assert budgeted_context_configuration is None
         assert expected_model is None
+        assert skills_root is None
+        assert model_max_retries is None
         received_calls.append(
             (
                 starting_input,
@@ -119,6 +166,277 @@ def test_run_executes_coding_task_and_prints_trace(monkeypatch, capsys) -> None:
     assert '"byte_count": 12' in captured.err
 
 
+@pytest.mark.parametrize("matched", (True, False), ids=("matched", "unmatched"))
+def test_run_with_explicit_skills_root_handles_skill_selection(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+    matched: bool,
+) -> None:
+    class RecordingClient:
+        async def close(self) -> None:
+            return None
+
+    skill_directory = tmp_path / "skills" / "readme-review"
+    skill_directory.mkdir(parents=True)
+    (skill_directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "readme-review",
+                "description": "Review README files.",
+                "entrypoint": "SKILL.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+    if matched:
+        (skill_directory / "SKILL.md").write_text(
+            "Check README before answering.",
+            encoding="utf-8",
+        )
+    else:
+        (skill_directory / "SKILL.md").write_bytes(b"\xff")
+    model = ScriptedModel(responses=(ModelResponse(content="Done."),))
+    state_home = tmp_path / "state"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_dashscope_client", lambda config: RecordingClient())
+    monkeypatch.setattr(
+        cli,
+        "build_dashscope_model",
+        lambda config, *, client: model,
+    )
+
+    assert cli.main(
+        [
+            "run",
+            "Inspect README.md." if matched else "Calculate 2 + 2.",
+            "--skills-root",
+            str(tmp_path / "skills"),
+            "--trace",
+        ]
+    ) == 0
+
+    captured = capsys.readouterr()
+    run_id = captured.err.splitlines()[0].removeprefix("Run ID: ")
+    expected_skill = (
+        "# Loaded Skills\n\n"
+        "## Skill: readme-review\n\n"
+        "Check README before answering."
+    ) if matched else ""
+    assert len(model.requests[0].instructions) == (2 if matched else 1)
+    if matched:
+        assert model.requests[0].instructions[1] == expected_skill
+        assert "skill_load_finished" in captured.err
+    else:
+        assert 'skill_selection_finished {"selected": []}' in captured.err
+        assert "skill_load_started" not in captured.err
+        assert "skill_load_finished" not in captured.err
+    assert "skill_selection_finished" in captured.err
+    assert "Check README before answering." not in captured.err
+    checkpoint = FileCheckpointStore(
+        cli._checkpoint_root(tmp_path, {"XDG_STATE_HOME": str(state_home)})
+    ).latest(run_id)
+    assert checkpoint is not None
+    assert checkpoint.is_completed is True
+    assert checkpoint.skill_instructions == expected_skill
+
+
+def test_run_rejects_selected_invalid_skill_body_before_model_call(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    class RecordingClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    skill_directory = tmp_path / "skills" / "readme-review"
+    skill_directory.mkdir(parents=True)
+    (skill_directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "name": "readme-review",
+                "description": "Review README files.",
+                "entrypoint": "SKILL.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (skill_directory / "SKILL.md").write_bytes(b"\xff")
+    model = ScriptedModel(responses=())
+    client = RecordingClient()
+    state_home = tmp_path / "state"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_dashscope_client", lambda config: client)
+    monkeypatch.setattr(
+        cli,
+        "build_dashscope_model",
+        lambda config, *, client: model,
+    )
+
+    assert cli.main(
+        [
+            "run",
+            "Inspect README.md.",
+            "--skills-root",
+            str(tmp_path / "skills"),
+            "--trace",
+        ]
+    ) == 2
+
+    captured = capsys.readouterr()
+    run_id = captured.err.splitlines()[0].removeprefix("Run ID: ")
+    assert captured.out == ""
+    assert "Skill error: cannot load skill 'readme-review' instructions" in captured.err
+    selection_event = next(
+        line for line in captured.err.splitlines() if " skill_selection_finished " in line
+    )
+    selection_payload = json.loads(selection_event.split(" ", 2)[2])
+    assert [skill["skill_name"] for skill in selection_payload["selected"]] == [
+        "readme-review"
+    ]
+    assert "skill_load_started" in captured.err
+    assert (
+        'skill_load_finished {"error_type": "SkillLoadError", '
+        '"outcome": "failed", "skill_name": "readme-review"}'
+    ) in captured.err
+    assert 'run_finished {"error_type": "SkillLoadError", "outcome": "failed"}' in captured.err
+    assert "model_call_started" not in captured.err
+    assert model.requests == ()
+    assert client.closed is True
+    assert FileCheckpointStore(
+        cli._checkpoint_root(tmp_path, {"XDG_STATE_HOME": str(state_home)})
+    ).latest(run_id) is None
+
+
+def test_run_without_skills_root_does_not_load_skill_catalog(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    class RecordingClient:
+        async def close(self) -> None:
+            return None
+
+    skill_directory = tmp_path / "skills" / "readme-review"
+    skill_directory.mkdir(parents=True)
+    (skill_directory / "manifest.json").write_text(
+        "{not valid JSON",
+        encoding="utf-8",
+    )
+
+    async def unexpected_catalog_load(self):
+        pytest.fail("Skill catalog must not be loaded without --skills-root")
+
+    model = ScriptedModel(responses=(ModelResponse(content="Done."),))
+    state_home = tmp_path / "state"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli.FileSkillCatalogLoader, "load", unexpected_catalog_load)
+    monkeypatch.setattr(cli, "build_dashscope_client", lambda config: RecordingClient())
+    monkeypatch.setattr(
+        cli,
+        "build_dashscope_model",
+        lambda config, *, client: model,
+    )
+
+    assert cli.main(["run", "Inspect README.md.", "--trace"]) == 0
+
+    captured = capsys.readouterr()
+    run_id = captured.err.splitlines()[0].removeprefix("Run ID: ")
+    assert captured.out == "Done.\n"
+    assert len(model.requests) == 1
+    assert len(model.requests[0].instructions) == 1
+    assert "skill_selection_finished" not in captured.err
+    assert "skill_load_started" not in captured.err
+    assert "skill_load_finished" not in captured.err
+    checkpoint = FileCheckpointStore(
+        cli._checkpoint_root(tmp_path, {"XDG_STATE_HOME": str(state_home)})
+    ).latest(run_id)
+    assert checkpoint is not None
+    assert checkpoint.is_completed is True
+    assert checkpoint.skill_instructions is None
+
+
+def test_resume_reuses_saved_skill_without_skills_root(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    class RecordingClient:
+        async def close(self) -> None:
+            return None
+
+    run_id = "run_saved_skill"
+    original_skill = "Original Skill instructions from the interrupted run."
+    state_home = tmp_path / "state"
+    checkpoint_store = FileCheckpointStore(
+        cli._checkpoint_root(tmp_path, {"XDG_STATE_HOME": str(state_home)})
+    )
+    checkpoint_store.save(
+        RunCheckpoint(
+            run_id=run_id,
+            message_history=(
+                Message(role=MessageRole.USER, content="Inspect README.md."),
+            ),
+            turns_used=1,
+            tool_calls_used=0,
+            skill_instructions=original_skill,
+        )
+    )
+    model = ScriptedModel(responses=(ModelResponse(content="Done."),))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+    monkeypatch.setattr(cli, "build_dashscope_client", lambda config: RecordingClient())
+    monkeypatch.setattr(
+        cli,
+        "build_dashscope_model",
+        lambda config, *, client: model,
+    )
+
+    assert cli.main(["resume", run_id, "--trace"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == "Done.\n"
+    assert "run_resumed" in captured.err
+    assert "skill_selection_finished" not in captured.err
+    assert model.requests[0].instructions[-1] == original_skill
+    saved = checkpoint_store.latest(run_id)
+    assert saved is not None
+    assert saved.is_completed is True
+    assert saved.skill_instructions == original_skill
+
+
+def test_run_rejects_missing_skills_root_before_model_client(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-api-key")
+
+    def unexpected_client(config):
+        pytest.fail("invalid Skill directory must be rejected before model setup")
+
+    monkeypatch.setattr(cli, "build_dashscope_client", unexpected_client)
+
+    assert cli.main(
+        ["run", "Inspect README.md.", "--skills-root", str(tmp_path / "missing")]
+    ) == 2
+    assert "Configuration error: cannot load Skill directory" in capsys.readouterr().err
+
+
 def test_run_reports_model_failure_with_trace(
     monkeypatch,
     capsys,
@@ -133,6 +451,8 @@ def test_run_reports_model_failure_with_trace(
         max_inline_tool_result_bytes: int | None,
         budgeted_context_configuration,
         expected_model,
+        skills_root,
+        model_max_retries,
     ) -> RunResult:
         del (
             starting_input,
@@ -142,6 +462,8 @@ def test_run_reports_model_failure_with_trace(
             max_inline_tool_result_bytes,
             budgeted_context_configuration,
             expected_model,
+            skills_root,
+            model_max_retries,
         )
         event_ledger.record(
             EventKind.RUN_STARTED,
@@ -211,11 +533,15 @@ def test_resume_loads_workspace_checkpoint_and_reuses_run_id(
         max_inline_tool_result_bytes: int | None,
         budgeted_context_configuration,
         expected_model,
+        skills_root,
+        model_max_retries,
     ) -> RunResult:
         received_inputs.append(starting_input)
         assert max_inline_tool_result_bytes is None
         assert budgeted_context_configuration is None
         assert expected_model is None
+        assert skills_root is None
+        assert model_max_retries is None
         assert max_turns == 4
         assert max_tool_calls == 5
         assert event_ledger.run_id == "run_001"
@@ -492,13 +818,14 @@ async def test_execute_coding_task_applies_registered_budget_configuration(
 
     monkeypatch.setattr(cli, "build_coding_agent", build_agent)
 
+    monkeypatch.setenv("DASHSCOPE_MODEL", "qwen3.7-flash")
     await cli._execute_coding_task(
         "Complete the registered run.",
         max_turns=1,
         max_tool_calls=1,
         event_ledger=InMemoryEventLedger(run_id="run_registered"),
         budgeted_context_configuration=configuration,
-        expected_model="qwen3.7-flash-2026-07-15",
+        expected_model="qwen3.7-flash",
     )
 
     assert received_options["max_inline_tool_result_bytes"] is None
@@ -526,7 +853,7 @@ async def test_execute_coding_task_rejects_registered_model_drift_before_client(
             max_turns=1,
             max_tool_calls=1,
             event_ledger=InMemoryEventLedger(run_id="run_model_drift"),
-            expected_model="qwen3.7-flash-2026-07-15",
+            expected_model="qwen3.7-flash",
         )
 
 

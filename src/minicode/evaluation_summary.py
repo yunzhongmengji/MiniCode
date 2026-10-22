@@ -61,6 +61,7 @@ class _RecordedEvaluation:
     tool_execution_count: int
     input_tokens: int
     output_tokens: int
+    usage_complete: bool | None
     workspace_change_count: int
     artifact_names: frozenset[str]
     run_id: str | None
@@ -106,7 +107,11 @@ class _ContextProtocol:
     ) = None
 
 
-def summarize_results(results_root: Path) -> str:
+def summarize_results(
+    results_root: Path,
+    *,
+    require_complete_usage: bool = False,
+) -> str:
     """Render a Markdown summary of every result below one directory."""
     result_paths = tuple(sorted(results_root.rglob("result.json")))
 
@@ -115,11 +120,15 @@ def summarize_results(results_root: Path) -> str:
 
     results = tuple(_load_result(path) for path in result_paths)
     rows = [
-        "| Case | Passed | Model calls | Tool executions | Input tokens | Output tokens | Changes |",
-        "|---|---:|---:|---:|---:|---:|---:|",
+        "| Case | Passed | Model calls | Tool executions | Reported input tokens | Reported output tokens | Changes | Usage |",
+        "|---|---:|---:|---:|---:|---:|---:|---|",
     ]
 
     for result in results:
+        usage_status = "unknown"
+        if result.usage_complete is not None:
+            usage_status = "complete" if result.usage_complete else "incomplete"
+
         rows.append(
             "| "
             f"{result.case_id} | "
@@ -128,7 +137,8 @@ def summarize_results(results_root: Path) -> str:
             f"{result.tool_execution_count} | "
             f"{result.input_tokens} | "
             f"{result.output_tokens} | "
-            f"{result.workspace_change_count} |"
+            f"{result.workspace_change_count} | "
+            f"{usage_status} |"
         )
 
     passed_count = sum(result.passed for result in results)
@@ -156,12 +166,18 @@ def summarize_results(results_root: Path) -> str:
             f"- Dirty MiniCode runs: {sum(result.minicode_dirty for result in results)}",
             f"- Total model calls: {sum(result.model_call_count for result in results)}",
             f"- Total tool executions: {sum(result.tool_execution_count for result in results)}",
-            f"- Total input tokens: {sum(result.input_tokens for result in results)}",
-            f"- Total output tokens: {sum(result.output_tokens for result in results)}",
+            f"- Reported input tokens: {sum(result.input_tokens for result in results)}",
+            f"- Reported output tokens: {sum(result.output_tokens for result in results)}",
+            f"- Runs with incomplete usage: {sum(result.usage_complete is False for result in results)}",
+            f"- Runs with unknown usage completeness: {sum(result.usage_complete is None for result in results)}",
             f"- Models: {models}",
             f"- MiniCode commits: {commits}",
         )
     )
+    if require_complete_usage:
+        usage_passed = all(result.usage_complete is True for result in results)
+        rows.append(f"- Provider usage gate: {'PASS' if usage_passed else 'FAIL'}")
+
     return "\n".join(rows)
 
 
@@ -911,11 +927,31 @@ def _load_result(path: Path) -> _RecordedEvaluation:
         ),
         input_tokens=_required_integer(run, "input_tokens", path),
         output_tokens=_required_integer(run, "output_tokens", path),
+        usage_complete=_load_usage_completeness(run, path),
         workspace_change_count=len(workspace_status),
         artifact_names=artifact_names,
         run_id=_optional_string(run, "run_id", path),
         context_experiment=context_experiment,
     )
+
+
+def _load_usage_completeness(run: Mapping[str, object], path: Path) -> bool | None:
+    """Read new usage metadata without inventing facts for older records."""
+    fields = ("model_calls_with_usage", "model_calls_missing_usage", "usage_complete")
+    if not any(field in run for field in fields):
+        return None
+
+    calls = _required_non_negative_integer(run, "model_call_count", path)
+    with_usage = _required_non_negative_integer(run, "model_calls_with_usage", path)
+    missing_usage = _required_non_negative_integer(run, "model_calls_missing_usage", path)
+    complete = _required_boolean(run, "usage_complete", path)
+    if with_usage + missing_usage != calls:
+        raise ValueError(f"model usage counts disagree with model_call_count: {path}")
+
+    if complete != (calls > 0 and missing_usage == 0):
+        raise ValueError(f"usage_complete disagrees with model usage counts: {path}")
+
+    return complete
 
 
 def _load_trace_dimensions(
@@ -1719,6 +1755,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Pre-registered context protocol for two-arm Preflight reporting.",
     )
+    context_mode.add_argument(
+        "--require-complete-usage",
+        action="store_true",
+        help="Fail a general summary if any run has incomplete or unknown Token usage.",
+    )
     return parser
 
 
@@ -1740,7 +1781,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.context_protocol,
         )
     else:
-        summary = summarize_results(args.results_root)
+        summary = summarize_results(
+            args.results_root,
+            require_complete_usage=args.require_complete_usage,
+        )
+        if summary.endswith("- Provider usage gate: FAIL"):
+            exit_code = 1
 
     print(summary)
     return exit_code

@@ -13,6 +13,8 @@ from minicode.core.tool_calls import (
     ToolResult,
 )
 
+MAX_SKILL_INSTRUCTIONS_BYTES = 160_000
+
 
 @dataclass(frozen=True, slots=True)
 class RunCheckpoint:
@@ -23,6 +25,7 @@ class RunCheckpoint:
     turns_used: int
     tool_calls_used: int
     is_completed: bool = False
+    skill_instructions: str | None = None
 
     def __post_init__(self) -> None:
         """Validate and snapshot resumable state."""
@@ -104,6 +107,20 @@ class RunCheckpoint:
 
         if self.is_completed and seen_tool_call_ids != completed_tool_call_ids:
             raise ValueError("completed checkpoint must not contain pending tool calls")
+
+        skill_instructions = self.skill_instructions
+
+        if skill_instructions is not None:
+            if not isinstance(skill_instructions, str):
+                raise TypeError("skill_instructions must be a string or None")
+
+            if skill_instructions and not skill_instructions.strip():
+                raise ValueError("skill_instructions must not be whitespace only")
+
+            if len(skill_instructions.encode("utf-8")) > MAX_SKILL_INSTRUCTIONS_BYTES:
+                raise ValueError(
+                    f"skill_instructions exceeds {MAX_SKILL_INSTRUCTIONS_BYTES} bytes"
+                )
 
         object.__setattr__(
             self,

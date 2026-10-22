@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from minicode.context_experiment_protocol import (
     BudgetedContextExperimentProtocol,
@@ -23,7 +23,7 @@ from minicode.core.context_projection_config import (
 )
 from minicode.core.events import EventKind, LedgerEvent
 from minicode.core.replay import RunReplay
-from minicode.core.tool_calls import JsonValue
+from minicode.core.tool_calls import JsonValue, to_plain_json
 from minicode.evaluation_case import (
     EvaluationBudget,
     load_case_manifest,
@@ -33,6 +33,8 @@ from minicode.evaluation_trace import (
     TraceEvaluation,
     evaluate_trace_expectations,
 )
+
+type SkillArm = Literal["baseline", "treatment"]
 
 
 def parse_trace(trace: str) -> RunReplay:
@@ -83,12 +85,20 @@ def summarize_trace(replay: RunReplay) -> dict[str, object]:
     """Return stable counts and outcomes from a validated replay."""
     input_tokens = 0
     output_tokens = 0
+    finished_model_calls = 0
+    calls_with_usage = 0
     tool_requests: Counter[str] = Counter()
 
     for event in replay.events:
         if event.kind is EventKind.MODEL_CALL_FINISHED:
+            finished_model_calls += 1
             input_tokens += _optional_integer(event, "input_tokens")
             output_tokens += _optional_integer(event, "output_tokens")
+            if (
+                type(event.payload.get("input_tokens")) is int
+                and type(event.payload.get("output_tokens")) is int
+            ):
+                calls_with_usage += 1
 
         if event.kind is EventKind.TOOL_POLICY_DECIDED:
             tool_name = event.payload.get("tool_name")
@@ -99,17 +109,129 @@ def summarize_trace(replay: RunReplay) -> dict[str, object]:
             tool_requests[tool_name] += 1
 
     final_payload = replay.events[-1].payload if replay.is_finished else {}
+    model_call_count = replay.model_call_count
+    if finished_model_calls > model_call_count:
+        raise ValueError("more model call finishes than model call starts")
 
-    return {
+    summary: dict[str, object] = {
         "run_id": replay.run_id,
         "outcome": replay.outcome,
         "stop_reason": final_payload.get("stop_reason"),
         "turns_used": final_payload.get("turns_used"),
-        "model_call_count": replay.model_call_count,
+        "model_call_count": model_call_count,
         "tool_execution_count": replay.tool_execution_count,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "model_calls_with_usage": calls_with_usage,
+        "model_calls_missing_usage": model_call_count - calls_with_usage,
+        "usage_complete": (
+            model_call_count > 0
+            and finished_model_calls == model_call_count
+            and calls_with_usage == model_call_count
+        ),
         "tool_requests": dict(sorted(tool_requests.items())),
+    }
+    model_budget = replay.events[0].payload.get("model_budget")
+    if model_budget is not None:
+        summary["model_budget"] = to_plain_json(model_budget)
+    return summary
+
+
+def summarize_skill_experiment(
+    replay: RunReplay,
+    *,
+    arm: SkillArm,
+) -> dict[str, object]:
+    """Check a fresh run's Skill events against its declared task arm."""
+    if arm not in ("baseline", "treatment"):
+        raise ValueError("skill arm must be baseline or treatment")
+
+    if replay.events[0].kind is not EventKind.RUN_STARTED:
+        raise ValueError("skill experiment requires a fresh-run Trace")
+
+    skill_events = tuple(
+        event for event in replay.events if event.kind.value.startswith("skill_")
+    )
+    if arm == "baseline":
+        if skill_events:
+            raise ValueError("declared skill baseline disagrees with Skill events")
+
+        return {"arm": arm, "selected_skill_names": [], "loaded_skill_names": []}
+
+    selections = tuple(
+        event
+        for event in skill_events
+        if event.kind is EventKind.SKILL_SELECTION_FINISHED
+    )
+    if len(selections) != 1:
+        raise ValueError("declared skill treatment requires one selection event")
+
+    raw_selected = selections[0].payload.get("selected")
+    if not isinstance(raw_selected, (tuple, list)):
+        raise TypeError("skill selection event must contain a list of skills")
+
+    selected_names: list[str] = []
+    for selected in raw_selected:
+        if not isinstance(selected, Mapping):
+            raise TypeError("skill selection entries must be objects")
+
+        name = selected.get("skill_name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("skill selection names must be non-blank strings")
+
+        selected_names.append(name)
+
+    if len(selected_names) != len(set(selected_names)):
+        raise ValueError("skill selection names must be unique")
+
+    started_names: list[str] = []
+    finished_names: list[str] = []
+    outcomes: list[str] = []
+    for event in skill_events:
+        if event.kind not in (
+            EventKind.SKILL_LOAD_STARTED,
+            EventKind.SKILL_LOAD_FINISHED,
+        ):
+            continue
+
+        name = event.payload.get("skill_name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("skill load events require a skill name")
+
+        if event.kind is EventKind.SKILL_LOAD_STARTED:
+            started_names.append(name)
+            continue
+
+        outcome = event.payload.get("outcome")
+        if outcome not in ("succeeded", "failed", "cancelled"):
+            raise ValueError("skill load events require a known outcome")
+
+        finished_names.append(name)
+        outcomes.append(outcome)
+
+    if (
+        started_names != selected_names[: len(started_names)]
+        or finished_names != started_names
+        or any(outcome != "succeeded" for outcome in outcomes[:-1])
+        or (
+            len(started_names) < len(selected_names)
+            and (not outcomes or outcomes[-1] == "succeeded")
+        )
+    ):
+        raise ValueError("skill load events disagree with the selected skills")
+
+    loaded_names = [
+        name
+        for name, outcome in zip(finished_names, outcomes, strict=True)
+        if outcome == "succeeded"
+    ]
+    if replay.model_call_count and loaded_names != selected_names:
+        raise ValueError("model was called before selected Skills finished loading")
+
+    return {
+        "arm": arm,
+        "selected_skill_names": selected_names,
+        "loaded_skill_names": loaded_names,
     }
 
 
@@ -246,8 +368,7 @@ def summarize_budgeted_context_experiment(
         BudgetedContextProjectionConfiguration,
     ):
         raise TypeError(
-            "expected_configuration must be a "
-            "BudgetedContextProjectionConfiguration"
+            "expected_configuration must be a BudgetedContextProjectionConfiguration"
         )
 
     recorded_configuration: BudgetedContextProjectionConfiguration | None = None
@@ -304,9 +425,7 @@ def summarize_registered_context_experiment(
         )
 
     if model != protocol.model.name:
-        raise ValueError(
-            "result model does not match the registered context protocol"
-        )
+        raise ValueError("result model does not match the registered context protocol")
 
     if arm is EvaluationArm.BASELINE:
         return summarize_context_experiment(
@@ -345,12 +464,8 @@ def _budgeted_configuration_from_trace(
             + ", ".join(missing_fields)
         )
 
-    configuration_payload = {
-        field: projection[field] for field in configuration_fields
-    }
-    return BudgetedContextProjectionConfiguration.from_payload(
-        configuration_payload
-    )
+    configuration_payload = {field: projection[field] for field in configuration_fields}
+    return BudgetedContextProjectionConfiguration.from_payload(configuration_payload)
 
 
 def _context_metrics_payload(metrics: ContextTraceMetrics) -> dict[str, int]:
@@ -421,6 +536,7 @@ def record_result(
     context_protocol_id: str | None = None,
     context_arm: EvaluationArm | None = None,
     registered_context_protocol: BudgetedContextExperimentProtocol | None = None,
+    skill_arm: SkillArm | None = None,
 ) -> bool:
     """Run acceptance and write one non-overwriting result document."""
     resolved_case_root = case_root.resolve(strict=True)
@@ -435,8 +551,7 @@ def record_result(
 
     if context_protocol_id is not None and registered_context_protocol is not None:
         raise ValueError(
-            "context protocol_id and registered_context_protocol are mutually "
-            "exclusive"
+            "context protocol_id and registered_context_protocol are mutually exclusive"
         )
 
     has_context_protocol = (
@@ -445,6 +560,9 @@ def record_result(
 
     if has_context_protocol != (context_arm is not None):
         raise ValueError("one context protocol and arm must be provided together")
+
+    if skill_arm is not None and has_context_protocol:
+        raise ValueError("skill arm cannot be combined with a context protocol")
 
     if resolved_answer.parent != resolved_output.parent:
         raise ValueError("answer and result JSON must share one directory")
@@ -463,6 +581,14 @@ def record_result(
 
     trace = resolved_trace.read_text(encoding="utf-8")
     replay = parse_trace(trace)
+    if skill_arm is None:
+        if any(event.kind.value.startswith("skill_") for event in replay.events):
+            raise ValueError("Skill Trace requires --skill-arm to record its arm")
+
+        skill_experiment = None
+    else:
+        skill_experiment = summarize_skill_experiment(replay, arm=skill_arm)
+
     if registered_context_protocol is not None:
         assert context_arm is not None
         context_experiment = summarize_registered_context_experiment(
@@ -566,6 +692,9 @@ def record_result(
 
     if context_experiment is not None:
         result["context_experiment"] = context_experiment
+
+    if skill_experiment is not None:
+        result["skill_experiment"] = skill_experiment
 
     resolved_output.parent.mkdir(
         parents=True,
@@ -749,6 +878,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--context-arm", type=EvaluationArm, choices=tuple(EvaluationArm)
     )
+    parser.add_argument("--skill-arm", choices=("baseline", "treatment"))
     return parser
 
 
@@ -765,6 +895,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(
             "one context protocol option and --context-arm must be provided together"
         )
+
+    if has_context_protocol and args.skill_arm is not None:
+        parser.error("--skill-arm cannot be combined with a context protocol")
 
     registered_protocol = (
         load_budgeted_context_experiment_protocol(args.context_protocol)
@@ -783,6 +916,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         context_protocol_id=args.context_protocol_id,
         context_arm=args.context_arm,
         registered_context_protocol=registered_protocol,
+        skill_arm=args.skill_arm,
     )
     print(f"{'PASS' if accepted else 'FAIL'} {args.case_root.name}: {args.output}")
     return 0 if accepted else 1

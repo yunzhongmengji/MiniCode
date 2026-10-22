@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -28,6 +29,9 @@ from minicode.core.tool_policy import (
     PolicyOutcome,
 )
 from minicode.models.scripted import ScriptedModel
+from minicode.skills.context import SkillContext
+from minicode.skills.loader import LoadedSkill
+from minicode.skills.manifest import SkillManifest
 from minicode.tools.process import AsyncioProcessRunner
 from minicode.tools.scripted import ScriptedToolRuntime
 from minicode.workspace import Workspace
@@ -271,6 +275,11 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
         is_completed=True,
     )
     event_kinds = tuple(event.kind for event in event_ledger.events)
+    assert not {
+        EventKind.SKILL_SELECTION_FINISHED,
+        EventKind.SKILL_LOAD_STARTED,
+        EventKind.SKILL_LOAD_FINISHED,
+    }.intersection(event_kinds)
     assert event_kinds.index(EventKind.MODEL_CALL_FINISHED) < event_kinds.index(
         EventKind.TOOL_POLICY_DECIDED
     )
@@ -296,6 +305,103 @@ async def test_build_coding_agent_exposes_and_executes_default_tools(
     assert artifact_store.read_text(artifact_id) == (
         'File "README.md":\nMiniCode is a coding agent.\n'
     )
+
+
+@pytest.mark.asyncio
+async def test_build_coding_agent_passes_skill_context_to_each_model_turn(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "README.md").write_text("MiniCode\n", encoding="utf-8")
+    tool_call = ToolCall(
+        call_id="call_readme",
+        name="read_file",
+        arguments={"path": "README.md"},
+    )
+    model = ScriptedModel(
+        responses=(
+            ModelResponse(content="", tool_calls=(tool_call,)),
+            ModelResponse(content="The README says MiniCode."),
+        ),
+    )
+    skill_context = SkillContext(
+        skills=(
+            LoadedSkill(
+                manifest=SkillManifest(
+                    name="readme-review",
+                    description="Review README files.",
+                    entrypoint="SKILL.md",
+                ),
+                instructions="Check the README before answering.",
+            ),
+        ),
+    )
+
+    class RecordingSkillProvider:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def build(self, query: str) -> SkillContext:
+            self.queries.append(query)
+            return skill_context
+
+    provider = RecordingSkillProvider()
+    agent = build_coding_agent(
+        model=model,
+        workspace=Workspace(tmp_path),
+        process_runner=AsyncioProcessRunner(),
+        skill_context_provider=provider,
+    )
+
+    result = await agent.run("Inspect README.md.")
+
+    assert provider.queries == ["Inspect README.md."]
+    assert len(model.requests) == 2
+    assert all(
+        request.instructions[1] == skill_context.render()
+        for request in model.requests
+    )
+    assert all(len(request.instructions) == 2 for request in model.requests)
+    assert result.message_history == (
+        Message(role=MessageRole.USER, content="Inspect README.md."),
+        tool_call,
+        ToolResult(call_id="call_readme", output='File "README.md":\nMiniCode\n'),
+    )
+    assert model.requests[1].conversation == result.message_history
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error_type", "outcome"),
+    (
+        (RuntimeError, "failed"),
+        (asyncio.CancelledError, "cancelled"),
+    ),
+)
+async def test_build_coding_agent_preserves_skill_provider_failure(
+    tmp_path: Path,
+    error_type: type[BaseException],
+    outcome: str,
+) -> None:
+    class FailingSkillProvider:
+        async def build(self, query: str) -> SkillContext:
+            raise error_type("skill context unavailable")
+
+    model = ScriptedModel(responses=(ModelResponse(content="unused"),))
+    ledger = InMemoryEventLedger(run_id="run_skill_failure")
+    agent = build_coding_agent(
+        model=model,
+        workspace=Workspace(tmp_path),
+        process_runner=AsyncioProcessRunner(),
+        event_ledger=ledger,
+        skill_context_provider=FailingSkillProvider(),
+    )
+
+    with pytest.raises(error_type, match="skill context unavailable"):
+        await agent.run("Inspect README.md.")
+
+    assert model.requests == ()
+    assert ledger.events[-1].kind is EventKind.RUN_FINISHED
+    assert ledger.events[-1].payload["outcome"] == outcome
 
 
 @pytest.mark.asyncio

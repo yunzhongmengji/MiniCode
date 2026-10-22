@@ -12,7 +12,7 @@ from minicode.models.openai_compatible import (
 )
 
 _DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-_DEFAULT_MODEL = "qwen3.7-flash-2026-07-15"
+_DEFAULT_MODEL = "qwen3.7-flash"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,12 +54,14 @@ class DashScopeConfig:
 
 def build_dashscope_client(
     config: DashScopeConfig,
+    *,
+    max_retries: int = 2,
 ) -> AsyncOpenAI:
     """Create an asynchronous SDK client from DashScope configuration."""
     return AsyncOpenAI(
         api_key=config.api_key,
         base_url=config.base_url,
-        max_retries=2,
+        max_retries=max_retries,
         timeout=60.0,
     )
 
@@ -68,9 +70,18 @@ def build_dashscope_model(
     config: DashScopeConfig,
     *,
     client: AsyncOpenAI | None = None,
+    max_output_tokens: int | None = None,
 ) -> OpenAICompatibleModel:
     """Create a MiniCode model adapter for Alibaba Cloud Model Studio."""
     resolved_client = build_dashscope_client(config) if client is None else client
+
+    if max_output_tokens is not None:
+        return OpenAICompatibleModel(
+            client=resolved_client,
+            model=config.model,
+            extra_body={"enable_thinking": False, "temperature": 0.0},
+            max_output_tokens=max_output_tokens,
+        )
 
     return OpenAICompatibleModel(
         client=resolved_client,

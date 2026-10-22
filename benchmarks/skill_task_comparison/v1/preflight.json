@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "protocol_id": "skill-inventory-preflight-v2-qwen3.7-flash",
+  "case_id": "multi_file_inventory_contract",
+  "model": "qwen3.7-flash",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "max_input_tokens": 30000,
+  "max_output_tokens": 4096,
+  "max_response_output_tokens": 1024,
+  "max_turns": 8,
+  "max_tool_calls": 8,
+  "model_max_retries": 0,
+  "temperature": 0.0,
+  "enable_thinking": false,
+  "arm_order": ["baseline", "treatment"],
+  "allowed_edit_paths": ["inventory.py", "report.py"],
+  "allowed_test_paths": ["tests", "tests/test_inventory_contract.py"],
+  "expected_skill_names": ["inventory-contract-review"]
+}

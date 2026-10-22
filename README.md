@@ -36,6 +36,17 @@ export DASHSCOPE_API_KEY
 minicode run "检查相关代码并运行测试"
 ```
 
+如果你信任某个本地 Skill 目录，可显式启用它：
+
+```bash
+minicode run "检查 README.md" --skills-root /path/to/trusted-skills
+```
+
+目录中每个 Skill 使用 `<名称>/manifest.json` 和同目录下的 `SKILL.md`。Manifest v1 包含
+`schema_version: 1`、`name`、`description`、`entrypoint`，可选 `tags`。
+不传 `--skills-root` 时不会扫描或加载 Skill；`resume` 不需要该参数，而是沿用 Checkpoint 中保存的原指令。
+仅指定你信任的目录，因为 Skill 正文会作为模型指令使用。
+
 输出有序执行事件及工具结果的 Artifact 元数据：
 
 ```bash

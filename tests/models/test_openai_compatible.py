@@ -296,7 +296,7 @@ def test_openai_completion_converts_text_response() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -334,7 +334,7 @@ def test_openai_completion_converts_tool_call() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -381,7 +381,7 @@ def test_openai_completion_rejects_invalid_tool_arguments_json() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -419,7 +419,7 @@ def test_openai_completion_rejects_non_object_tool_arguments() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -437,7 +437,7 @@ def test_openai_completion_rejects_missing_choices() -> None:
             "id": "chatcmpl_test",
             "choices": [],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -475,7 +475,7 @@ def test_openai_completion_rejects_unsupported_tool_call_type() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -513,7 +513,7 @@ def test_openai_completion_rejects_blank_tool_name() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -542,7 +542,7 @@ async def test_openai_compatible_model_completes_text_request() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -557,7 +557,7 @@ async def test_openai_compatible_model_completes_text_request() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     request = ModelRequest(
         conversation=(
@@ -574,7 +574,7 @@ async def test_openai_compatible_model_completes_text_request() -> None:
         content="Task completed.",
     )
     create_completion.assert_awaited_once_with(
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         messages=[
             {
                 "role": "user",
@@ -601,7 +601,7 @@ async def test_openai_compatible_model_provides_tools() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -615,7 +615,7 @@ async def test_openai_compatible_model_provides_tools() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     tool_spec = ToolSpec(
         name="echo",
@@ -638,7 +638,7 @@ async def test_openai_compatible_model_provides_tools() -> None:
         content="Task completed.",
     )
     create_completion.assert_awaited_once_with(
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         messages=[
             {
                 "role": "user",
@@ -721,7 +721,7 @@ async def test_openai_compatible_model_translates_authentication_error() -> None
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     request = ModelRequest(
         conversation=(
@@ -763,7 +763,7 @@ async def test_openai_compatible_model_translates_rate_limit_error() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     request = ModelRequest(
         conversation=(
@@ -800,7 +800,7 @@ async def test_openai_compatible_model_translates_connection_error() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     model_request = ModelRequest(
         conversation=(
@@ -846,7 +846,7 @@ async def test_openai_compatible_model_translates_free_quota_error() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     model_request = ModelRequest(
         conversation=(
@@ -892,7 +892,7 @@ async def test_openai_compatible_model_translates_access_denied_error() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     model_request = ModelRequest(
         conversation=(
@@ -938,7 +938,7 @@ async def test_openai_compatible_model_translates_service_error() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
     )
     model_request = ModelRequest(
         conversation=(
@@ -975,7 +975,7 @@ async def test_openai_compatible_model_provides_extra_body() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
         }
     )
@@ -990,7 +990,7 @@ async def test_openai_compatible_model_provides_extra_body() -> None:
 
     model = OpenAICompatibleModel(
         client=client,
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         extra_body={
             "enable_thinking": False,
         },
@@ -1010,7 +1010,7 @@ async def test_openai_compatible_model_provides_extra_body() -> None:
         content="Task completed.",
     )
     create_completion.assert_awaited_once_with(
-        model="qwen3.7-flash-2026-07-15",
+        model="qwen3.7-flash",
         messages=[
             {
                 "role": "user",
@@ -1044,7 +1044,7 @@ def test_openai_compatible_model_rejects_invalid_extra_body(
     ):
         OpenAICompatibleModel(
             client=client,
-            model="qwen3.7-flash-2026-07-15",
+            model="qwen3.7-flash",
             extra_body=extra_body,
         )
 
@@ -1065,7 +1065,7 @@ def test_openai_completion_converts_usage() -> None:
                 }
             ],
             "created": 0,
-            "model": "qwen3.7-flash-2026-07-15",
+            "model": "qwen3.7-flash",
             "object": "chat.completion",
             "usage": {
                 "prompt_tokens": 12,

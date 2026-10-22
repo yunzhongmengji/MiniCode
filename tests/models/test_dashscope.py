@@ -18,7 +18,7 @@ def test_dashscope_config_loads_api_key_and_defaults() -> None:
 
     assert config.api_key == "test-api-key"
     assert config.base_url == ("https://dashscope.aliyuncs.com/compatible-mode/v1")
-    assert config.model == ("qwen3.7-flash-2026-07-15")
+    assert config.model == "qwen3.7-flash"
 
 
 def test_dashscope_config_requires_api_key() -> None:
@@ -86,6 +86,27 @@ def test_build_dashscope_client_uses_config() -> None:
         timeout=60.0,
     )
     assert client is async_openai_type.return_value
+
+
+def test_build_dashscope_client_can_disable_retries_for_evaluation() -> None:
+    config = DashScopeConfig(api_key="test-api-key")
+
+    with patch("minicode.models.dashscope.AsyncOpenAI") as async_openai_type:
+        build_dashscope_client(config, max_retries=0)
+
+    assert async_openai_type.call_args.kwargs["max_retries"] == 0
+
+
+def test_budgeted_dashscope_model_freezes_output_and_sampling() -> None:
+    config = DashScopeConfig(api_key="test-api-key", model="fixed-model")
+    with patch("minicode.models.dashscope.OpenAICompatibleModel") as model_type:
+        client = object()
+        build_dashscope_model(config, client=client, max_output_tokens=1024)
+    assert model_type.call_args.kwargs["max_output_tokens"] == 1024
+    assert model_type.call_args.kwargs["extra_body"] == {
+        "enable_thinking": False,
+        "temperature": 0.0,
+    }
 
 
 def test_build_dashscope_model_wires_client_to_adapter() -> None:

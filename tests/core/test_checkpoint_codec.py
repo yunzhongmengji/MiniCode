@@ -52,6 +52,7 @@ def test_checkpoint_json_round_trip_preserves_resume_state() -> None:
     assert decoded == checkpoint
     assert decoded.pending_tool_calls == (pending_call,)
     assert document["schema_version"] == 2
+    assert "skill_instructions" not in document
     assert document["is_completed"] is False
     assert tuple(item["type"] for item in document["message_history"]) == (
         "message",
@@ -74,6 +75,56 @@ def test_checkpoint_json_reads_legacy_progress_without_completion_flag() -> None
 
     assert decoded.run_id == "run_legacy"
     assert decoded.is_completed is False
+    assert decoded.skill_instructions is None
+
+
+@pytest.mark.parametrize("instructions", ("", "# Loaded Skills\n\n## Skill: review"))
+def test_checkpoint_json_round_trip_preserves_skill_instructions(
+    instructions: str,
+) -> None:
+    checkpoint = RunCheckpoint(
+        run_id="run_skill",
+        message_history=(),
+        turns_used=1,
+        tool_calls_used=0,
+        skill_instructions=instructions,
+    )
+
+    encoded = checkpoint_to_json(checkpoint)
+    document = json.loads(encoded)
+
+    assert document["schema_version"] == 3
+    assert document["skill_instructions"] == instructions
+    assert checkpoint_from_json(encoded) == checkpoint
+
+
+def test_checkpoint_json_requires_skill_field_in_version_three() -> None:
+    with pytest.raises(TypeError, match="skill_instructions must be a string"):
+        checkpoint_from_json(
+            """{
+  "schema_version": 3,
+  "run_id": "run_skill",
+  "message_history": [],
+  "turns_used": 1,
+  "tool_calls_used": 0,
+  "is_completed": false
+}"""
+        )
+
+
+def test_checkpoint_json_rejects_skill_field_in_older_schema() -> None:
+    with pytest.raises(ValueError, match="requires checkpoint schema 3"):
+        checkpoint_from_json(
+            """{
+  "schema_version": 2,
+  "run_id": "run_skill",
+  "message_history": [],
+  "turns_used": 1,
+  "tool_calls_used": 0,
+  "is_completed": false,
+  "skill_instructions": "Skill instructions."
+}"""
+        )
 
 
 def test_checkpoint_json_requires_completion_flag_in_version_two() -> None:
@@ -92,10 +143,10 @@ def test_checkpoint_json_requires_completion_flag_in_version_two() -> None:
 def test_checkpoint_json_rejects_an_unknown_schema() -> None:
     with pytest.raises(
         ValueError,
-        match="unsupported checkpoint schema 3",
+        match="unsupported checkpoint schema 4",
     ):
         checkpoint_from_json(
             """{
-  "schema_version": 3
+  "schema_version": 4
 }"""
         )

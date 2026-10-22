@@ -91,6 +91,33 @@ class ModelUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelRunBudget:
+    """Usage-required stopping thresholds for one fresh evaluation run.
+
+    Cumulative thresholds are checked after a response, not prepaid hard caps.
+    The response output limit is also sent to the provider by the adapter.
+    """
+
+    max_input_tokens: int
+    max_output_tokens: int
+    max_response_output_tokens: int
+
+    def __post_init__(self) -> None:
+        for name in (
+            "max_input_tokens",
+            "max_output_tokens",
+            "max_response_output_tokens",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int:
+                raise TypeError(f"{name} must be an integer")
+            if value <= 0:
+                raise ValueError(f"{name} must be greater than zero")
+        if self.max_response_output_tokens > self.max_output_tokens:
+            raise ValueError("response output limit must not exceed run output limit")
+
+
+@dataclass(frozen=True, slots=True)
 class ModelRequest:
     """A provider-neutral request sent to a model implementation."""
 

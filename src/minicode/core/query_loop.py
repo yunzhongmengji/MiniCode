@@ -11,6 +11,7 @@ from enum import StrEnum
 from math import isfinite
 
 from minicode.core.checkpoints import (
+    MAX_SKILL_INSTRUCTIONS_BYTES,
     CheckpointStore,
     RunCheckpoint,
 )
@@ -23,13 +24,16 @@ from minicode.core.context_projection import (
     ModelContextProjector,
     describe_context_projector,
 )
+from minicode.core.context_projection_config import (
+    BudgetedContextProjectionConfiguration,
+)
 from minicode.core.conversation import ConversationItem
 from minicode.core.events import (
     EventKind,
     EventLedger,
 )
 from minicode.core.messages import Message, MessageRole
-from minicode.core.model import Model, ModelRequest, ModelResponse
+from minicode.core.model import Model, ModelRequest, ModelResponse, ModelRunBudget
 from minicode.core.tool_calls import (
     JsonValue,
     ToolCall,
@@ -59,6 +63,8 @@ class StopReason(StrEnum):
     TOOL_CALLS_PENDING = "tool_calls_pending"
     MAX_TURNS = "max_turns"
     MAX_TOOL_CALLS = "max_tool_calls"
+    USAGE_MISSING = "usage_missing"
+    TOKEN_BUDGET = "token_budget"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +118,7 @@ class QueryLoop:
         skill_context_provider: (SkillContextProvider | None) = None,
         instructions: Sequence[str] = (),
         context_projector: ModelContextProjector | None = None,
+        model_budget: ModelRunBudget | None = None,
     ) -> None:
         if not isinstance(max_turns, int) or isinstance(max_turns, bool):
             raise TypeError("max_turns must be an integer")
@@ -179,6 +186,9 @@ class QueryLoop:
         if checkpoint_store is not None and event_ledger is None:
             raise ValueError("checkpoint_store requires an event_ledger")
 
+        if model_budget is not None and not isinstance(model_budget, ModelRunBudget):
+            raise TypeError("model_budget must be a ModelRunBudget or None")
+        self._model_budget = model_budget
         self._model = model
         self._max_turns = max_turns
         self._tool_runtime = tool_runtime
@@ -218,6 +228,7 @@ class QueryLoop:
         message_history: Sequence[ConversationItem],
         turns_used: int,
         tool_calls_used: int,
+        skill_instructions: str | None,
         is_completed: bool = False,
     ) -> None:
         """Save progress or completed state when configured."""
@@ -237,6 +248,7 @@ class QueryLoop:
             turns_used=turns_used,
             tool_calls_used=tool_calls_used,
             is_completed=is_completed,
+            skill_instructions=skill_instructions,
         )
 
         checkpoint_store.save(checkpoint)
@@ -308,10 +320,33 @@ class QueryLoop:
                 "max_turns": self._max_turns,
                 "max_tool_calls": (self._max_tool_calls),
                 "total_timeout_seconds": (self._total_timeout_seconds),
+                **(
+                    {
+                        "model_budget": {
+                            "max_input_tokens": self._model_budget.max_input_tokens,
+                            "max_output_tokens": self._model_budget.max_output_tokens,
+                            "max_response_output_tokens": (
+                                self._model_budget.max_response_output_tokens
+                            ),
+                            "require_complete_usage": True,
+                        }
+                    }
+                    if self._model_budget is not None
+                    else {}
+                ),
             },
         )
 
-        return await self._execute_with_run_boundary(self._run(messages))
+        return await self._execute_with_run_boundary(self._run_new(messages))
+
+    async def _run_new(self, messages: Sequence[ConversationItem]) -> RunResult:
+        """Resolve Skill instructions once before the first model turn."""
+        message_history = tuple(messages)
+        skill_instructions = await self._build_skill_instructions(message_history)
+        return await self._run(
+            message_history,
+            skill_instructions=skill_instructions,
+        )
 
     async def _resume_from_checkpoint(
         self,
@@ -343,12 +378,14 @@ class QueryLoop:
                 message_history=message_history,
                 turns_used=(checkpoint.turns_used),
                 tool_calls_used=(tool_calls_used),
+                skill_instructions=checkpoint.skill_instructions,
             )
 
         return await self._run(
             message_history,
             first_turn=first_turn,
             tool_calls_used=tool_calls_used,
+            skill_instructions=checkpoint.skill_instructions,
         )
 
     async def resume(
@@ -362,6 +399,12 @@ class QueryLoop:
         ):
             raise TypeError("checkpoint must be a RunCheckpoint")
 
+        if self._model_budget is not None:
+            raise ValueError(
+                "model-budget evaluations require a fresh run; "
+                "checkpoint does not persist token totals"
+            )
+
         event_ledger = self._event_ledger
 
         if event_ledger is not None and event_ledger.run_id != checkpoint.run_id:
@@ -369,6 +412,15 @@ class QueryLoop:
 
         if checkpoint.is_completed:
             raise ValueError("cannot resume a completed run")
+
+        if (
+            self._skill_context_provider is not None
+            and checkpoint.skill_instructions is None
+        ):
+            raise ValueError(
+                "cannot resume with a Skill provider: checkpoint has no saved "
+                "Skill instructions"
+            )
 
         pending_tool_calls = checkpoint.pending_tool_calls
 
@@ -406,37 +458,44 @@ class QueryLoop:
     async def _build_skill_instructions(
         self,
         message_history: Sequence[ConversationItem],
-    ) -> tuple[str, ...]:
+    ) -> str | None:
         """Build optional instructions for one run."""
         provider = self._skill_context_provider
 
         if provider is None:
-            return ()
+            return None
 
         query = _latest_user_content(message_history)
 
         if not query:
-            return ()
+            return ""
 
         context = await provider.build(query)
         rendered = context.render()
 
-        if not rendered:
-            return ()
+        if len(rendered.encode("utf-8")) > MAX_SKILL_INSTRUCTIONS_BYTES:
+            raise ValueError(
+                "Skill instructions exceed the checkpoint limit of "
+                f"{MAX_SKILL_INSTRUCTIONS_BYTES} bytes"
+            )
 
-        return (rendered,)
+        return rendered
 
     async def _run(
         self,
         messages: Sequence[ConversationItem],
         *,
+        skill_instructions: str | None,
         first_turn: int = 1,
         tool_calls_used: int = 0,
     ) -> RunResult:
         """Run model turns until completion or a controlled stop."""
         message_history = tuple(messages)
-        skill_instructions = await self._build_skill_instructions(message_history)
-        instructions = self._instructions + skill_instructions
+        instructions = self._instructions + (
+            (skill_instructions,) if skill_instructions else ()
+        )
+        input_tokens_used = 0
+        output_tokens_used = 0
 
         for turn in range(
             first_turn,
@@ -453,6 +512,22 @@ class QueryLoop:
                 raise TypeError("context projector must return a ModelRequest")
 
             context_profile = profile_model_request(request)
+
+            if (
+                skill_instructions is not None
+                and isinstance(
+                    self._context_projection_configuration,
+                    BudgetedContextProjectionConfiguration,
+                )
+                and context_profile.total_bytes
+                > self._context_projection_configuration.max_request_bytes
+            ):
+                raise ValueError(
+                    "projected model request exceeds the configured byte budget: "
+                    f"{context_profile.total_bytes} > "
+                    f"{self._context_projection_configuration.max_request_bytes}"
+                )
+
             context_projection = profile_context_projection(
                 canonical_request,
                 request,
@@ -502,6 +577,8 @@ class QueryLoop:
             }
 
             if response.usage is not None:
+                input_tokens_used += response.usage.input_tokens
+                output_tokens_used += response.usage.output_tokens
                 model_call_finished_payload["input_tokens"] = (
                     response.usage.input_tokens
                 )
@@ -509,16 +586,47 @@ class QueryLoop:
                     response.usage.output_tokens
                 )
 
+            budget_stop: StopReason | None = None
+            budget = self._model_budget
+            if budget is not None:
+                if response.usage is None:
+                    budget_stop = StopReason.USAGE_MISSING
+                elif (
+                    input_tokens_used >= budget.max_input_tokens
+                    or output_tokens_used >= budget.max_output_tokens
+                    or response.usage.output_tokens > budget.max_response_output_tokens
+                ):
+                    budget_stop = StopReason.TOKEN_BUDGET
+                model_call_finished_payload["cumulative_input_tokens"] = (
+                    input_tokens_used
+                )
+                model_call_finished_payload["cumulative_output_tokens"] = (
+                    output_tokens_used
+                )
+                model_call_finished_payload["budget_stop_reason"] = (
+                    None if budget_stop is None else budget_stop.value
+                )
+
             self._record_event(
                 EventKind.MODEL_CALL_FINISHED,
                 model_call_finished_payload,
             )
+
+            # Reject further tools and model calls before processing this response.
+            if budget_stop is not None:
+                return RunResult(
+                    stop_reason=budget_stop,
+                    response=response,
+                    message_history=message_history,
+                    turns_used=turn,
+                )
 
             if not response.tool_calls:
                 self._save_checkpoint(
                     message_history=message_history,
                     turns_used=turn,
                     tool_calls_used=tool_calls_used,
+                    skill_instructions=skill_instructions,
                     is_completed=True,
                 )
                 return RunResult(
@@ -570,6 +678,7 @@ class QueryLoop:
                     message_history=message_history,
                     turns_used=turn,
                     tool_calls_used=tool_calls_used,
+                    skill_instructions=skill_instructions,
                 )
 
         raise RuntimeError("query loop stopped without producing a result")

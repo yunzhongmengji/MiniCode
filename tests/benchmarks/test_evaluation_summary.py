@@ -34,6 +34,7 @@ def _write_result(
     context_experiment: dict[str, object] | None = None,
     trace_evaluation: dict[str, object] | None = None,
     case_manifest: dict[str, object] | None = None,
+    usage_metadata: dict[str, object] | None = None,
 ) -> None:
     case_root = root / (case_id if directory_name is None else directory_name)
     case_root.mkdir(exist_ok=True)
@@ -57,6 +58,9 @@ def _write_result(
 
     if run_id is not None:
         result["run"]["run_id"] = run_id
+
+    if usage_metadata is not None:
+        result["run"].update(usage_metadata)
 
     if context_experiment is not None:
         result["context_experiment"] = context_experiment
@@ -516,8 +520,9 @@ def test_summary_combines_recorded_results(tmp_path: Path) -> None:
     assert "- Legacy results without trace verdict: 1" in summary
     assert "- Total model calls: 3" in summary
     assert "- Total tool executions: 3" in summary
-    assert "- Total input tokens: 140" in summary
-    assert "- Total output tokens: 30" in summary
+    assert "- Reported input tokens: 140" in summary
+    assert "- Reported output tokens: 30" in summary
+    assert "- Runs with unknown usage completeness: 2" in summary
     assert "- Models: test-model" in summary
     assert "- MiniCode commits: 1234567" in summary
 
@@ -544,6 +549,93 @@ def test_summary_keeps_legacy_result_without_verdict(tmp_path: Path) -> None:
     assert "- Trace failures: 0" in summary
     assert "- Legacy results without budget verdict: 1" in summary
     assert "- Legacy results without trace verdict: 1" in summary
+
+
+@pytest.mark.parametrize(
+    ("metadata", "status", "exit_code"),
+    (
+        (
+            {"model_calls_with_usage": 2, "model_calls_missing_usage": 0, "usage_complete": True},
+            "complete",
+            0,
+        ),
+        (
+            {"model_calls_with_usage": 1, "model_calls_missing_usage": 1, "usage_complete": False},
+            "incomplete",
+            1,
+        ),
+        (None, "unknown", 1),
+    ),
+)
+def test_usage_gate_requires_complete_data_for_every_run(
+    tmp_path: Path,
+    capsys,
+    metadata: dict[str, object] | None,
+    status: str,
+    exit_code: int,
+) -> None:
+    for case_id, usage in (
+        (
+            "complete_case",
+            {"model_calls_with_usage": 2, "model_calls_missing_usage": 0, "usage_complete": True},
+        ),
+        ("checked_case", metadata),
+    ):
+        _write_result(
+            tmp_path,
+            case_id=case_id,
+            accepted=True,
+            model_calls=2,
+            tool_executions=0,
+            input_tokens=100,
+            output_tokens=20,
+            workspace_changes=[],
+            usage_metadata=usage,
+        )
+
+    assert main([str(tmp_path), "--require-complete-usage"]) == exit_code
+    summary = capsys.readouterr().out
+    assert f"| checked_case | yes | 2 | 0 | 100 | 20 | 0 | {status} |" in summary
+    assert f"- Provider usage gate: {'PASS' if exit_code == 0 else 'FAIL'}" in summary
+    assert "- Passed: 2/2 (100.0%)" in summary
+
+
+@pytest.mark.parametrize(
+    ("metadata", "error_type", "error"),
+    (
+        (
+            {"model_calls_with_usage": 1, "model_calls_missing_usage": 0, "usage_complete": True},
+            ValueError,
+            "counts disagree",
+        ),
+        (
+            {"model_calls_with_usage": 1, "model_calls_missing_usage": 1, "usage_complete": True},
+            ValueError,
+            "usage_complete disagrees",
+        ),
+        ({"usage_complete": True}, TypeError, "model_calls_with_usage must be an integer"),
+    ),
+)
+def test_summary_rejects_inconsistent_usage_metadata(
+    tmp_path: Path,
+    metadata: dict[str, object],
+    error_type: type[Exception],
+    error: str,
+) -> None:
+    _write_result(
+        tmp_path,
+        case_id="invalid_usage",
+        accepted=True,
+        model_calls=2,
+        tool_executions=0,
+        input_tokens=100,
+        output_tokens=20,
+        workspace_changes=[],
+        usage_metadata=metadata,
+    )
+
+    with pytest.raises(error_type, match=error):
+        summarize_results(tmp_path)
 
 
 def test_summary_rejects_inconsistent_trace_verdict(tmp_path: Path) -> None:

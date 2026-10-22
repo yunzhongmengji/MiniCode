@@ -466,6 +466,7 @@ async def test_query_loop_resumes_only_pending_tool_calls() -> None:
         ),
         turns_used=1,
         tool_calls_used=1,
+        skill_instructions="Original Skill instructions.",
     )
 
     final_response = ModelResponse(
@@ -484,7 +485,14 @@ async def test_query_loop_resumes_only_pending_tool_calls() -> None:
     event_ledger = InMemoryEventLedger(
         run_id="run_001",
     )
-    checkpoint_store = InMemoryCheckpointStore()
+    saved_checkpoints: list[RunCheckpoint] = []
+
+    class RecordingCheckpointStore(InMemoryCheckpointStore):
+        def save(self, saved: RunCheckpoint) -> None:
+            saved_checkpoints.append(saved)
+            super().save(saved)
+
+    checkpoint_store = RecordingCheckpointStore()
     loop = QueryLoop(
         model=model,
         tool_runtime=tool_runtime,
@@ -508,6 +516,11 @@ async def test_query_loop_resumes_only_pending_tool_calls() -> None:
 
     assert tool_runtime.calls == (second_tool_call,)
     assert model.calls == (resumed_history,)
+    assert model.requests[0].instructions == ("Original Skill instructions.",)
+    assert tuple(saved.skill_instructions for saved in saved_checkpoints) == (
+        "Original Skill instructions.",
+        "Original Skill instructions.",
+    )
 
     assert checkpoint_store.latest("run_001") == RunCheckpoint(
         run_id="run_001",
@@ -515,6 +528,7 @@ async def test_query_loop_resumes_only_pending_tool_calls() -> None:
         turns_used=2,
         tool_calls_used=2,
         is_completed=True,
+        skill_instructions="Original Skill instructions.",
     )
     assert tuple(event.kind for event in event_ledger.events) == (
         EventKind.RUN_RESUMED,
@@ -1404,6 +1418,68 @@ async def test_query_loop_records_budgeted_projection_schema_and_effect() -> Non
 
 
 @pytest.mark.asyncio
+async def test_budgeted_query_loop_rejects_skill_request_that_cannot_fit() -> None:
+    class LargeSkillProvider:
+        async def build(self, query: str) -> SkillContext:
+            assert query == "Inspect README.md."
+            return SkillContext(
+                skills=(
+                    LoadedSkill(
+                        manifest=SkillManifest(
+                            name="readme-review",
+                            description="Review README files.",
+                            entrypoint="SKILL.md",
+                        ),
+                        instructions="x" * 1_100,
+                    ),
+                )
+            )
+
+    ledger = InMemoryEventLedger(run_id="run_skill_over_budget")
+    model = ScriptedModel(responses=[ModelResponse(content="unused")])
+    loop = QueryLoop(
+        model=model,
+        event_ledger=ledger,
+        skill_context_provider=LargeSkillProvider(),
+        context_projector=BudgetedToolResultProjector(
+            max_request_bytes=1_000,
+            retrieval_tool_spec=_READ_TOOL_RESULT_SPEC,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="projected model request exceeds"):
+        await loop.run(
+            (Message(role=MessageRole.USER, content="Inspect README.md."),)
+        )
+
+    assert model.requests == ()
+    assert tuple(event.kind for event in ledger.events) == (
+        EventKind.RUN_STARTED,
+        EventKind.RUN_FINISHED,
+    )
+    assert ledger.events[-1].payload == {
+        "outcome": "failed",
+        "error_type": "ValueError",
+    }
+
+
+@pytest.mark.asyncio
+async def test_budgeted_query_loop_keeps_best_effort_without_skill_provider() -> None:
+    model = ScriptedModel(responses=[ModelResponse(content="Done.")])
+    loop = QueryLoop(
+        model=model,
+        context_projector=BudgetedToolResultProjector(
+            max_request_bytes=1,
+            retrieval_tool_spec=_READ_TOOL_RESULT_SPEC,
+        ),
+    )
+
+    await loop.run((Message(role=MessageRole.USER, content="Inspect README.md."),))
+
+    assert len(model.requests) == 1
+
+
+@pytest.mark.asyncio
 async def test_query_loop_records_model_usage() -> None:
     ledger = InMemoryEventLedger(
         run_id="run_001",
@@ -1634,6 +1710,105 @@ async def test_query_loop_reuses_skill_context_without_changing_history() -> Non
         expected_history,
     )
     assert result.message_history == (expected_history)
+
+
+@pytest.mark.asyncio
+async def test_query_loop_saves_empty_skill_selection() -> None:
+    class EmptySkillProvider:
+        async def build(self, query: str) -> SkillContext:
+            assert query == "Inspect README.md."
+            return SkillContext(skills=())
+
+    store = InMemoryCheckpointStore()
+    model = ScriptedModel(responses=(ModelResponse(content="Done."),))
+    loop = QueryLoop(
+        model=model,
+        skill_context_provider=EmptySkillProvider(),
+        event_ledger=InMemoryEventLedger(run_id="run_empty_skill"),
+        checkpoint_store=store,
+    )
+
+    await loop.run((Message(role=MessageRole.USER, content="Inspect README.md."),))
+
+    checkpoint = store.latest("run_empty_skill")
+    assert checkpoint is not None
+    assert checkpoint.skill_instructions == ""
+    assert model.requests[0].instructions == ()
+
+
+@pytest.mark.asyncio
+async def test_query_loop_rejects_oversized_skill_before_model_call() -> None:
+    class OversizedSkillProvider:
+        async def build(self, query: str) -> SkillContext:
+            assert query == "Inspect README.md."
+            return SkillContext(
+                skills=(
+                    LoadedSkill(
+                        manifest=SkillManifest(
+                            name="large-skill",
+                            description="Large instructions.",
+                            entrypoint="SKILL.md",
+                        ),
+                        instructions="x" * 160_001,
+                    ),
+                )
+            )
+
+    ledger = InMemoryEventLedger(run_id="run_large_skill")
+    model = ScriptedModel(responses=(ModelResponse(content="unused"),))
+    loop = QueryLoop(
+        model=model,
+        skill_context_provider=OversizedSkillProvider(),
+        event_ledger=ledger,
+    )
+
+    with pytest.raises(ValueError, match="Skill instructions exceed"):
+        await loop.run((Message(role=MessageRole.USER, content="Inspect README.md."),))
+
+    assert model.requests == ()
+    assert tuple(event.kind for event in ledger.events) == (
+        EventKind.RUN_STARTED,
+        EventKind.RUN_FINISHED,
+    )
+    assert ledger.events[-1].payload == {
+        "outcome": "failed",
+        "error_type": "ValueError",
+    }
+
+
+@pytest.mark.asyncio
+async def test_query_loop_rejects_legacy_checkpoint_with_skill_provider() -> None:
+    class UnexpectedSkillProvider:
+        async def build(self, query: str) -> SkillContext:
+            raise AssertionError(f"provider must not be called: {query}")
+
+    pending_call = ToolCall(call_id="call_001", name="read_file", arguments={})
+    checkpoint = RunCheckpoint(
+        run_id="run_legacy",
+        message_history=(
+            Message(role=MessageRole.USER, content="Inspect README.md."),
+            pending_call,
+        ),
+        turns_used=1,
+        tool_calls_used=0,
+    )
+    runtime = ScriptedToolRuntime(
+        results=(ToolResult(call_id="call_001", output="README contents"),)
+    )
+    model = ScriptedModel(responses=(ModelResponse(content="unused"),))
+    loop = QueryLoop(
+        model=model,
+        tool_runtime=runtime,
+        max_turns=2,
+        event_ledger=InMemoryEventLedger(run_id="run_legacy"),
+        skill_context_provider=UnexpectedSkillProvider(),
+    )
+
+    with pytest.raises(ValueError, match="no saved Skill instructions"):
+        await loop.resume(checkpoint)
+
+    assert runtime.calls == ()
+    assert model.requests == ()
 
 
 @pytest.mark.asyncio

@@ -75,6 +75,27 @@ def _parse_manifest(
 
         data[key] = value
 
+    unexpected_fields = set(data) - {
+        "schema_version",
+        "name",
+        "description",
+        "entrypoint",
+        "tags",
+    }
+
+    if unexpected_fields:
+        raise SkillCatalogLoadError(
+            f"skill manifest '{manifest_path}' has unknown fields: "
+            f"{', '.join(sorted(unexpected_fields))}"
+        )
+
+    schema_version = data.get("schema_version", 1)
+
+    if type(schema_version) is not int or schema_version != 1:
+        raise SkillCatalogLoadError(
+            f"skill manifest '{manifest_path}' requires schema_version 1"
+        )
+
     raw_tags = data.get(
         "tags",
         [],

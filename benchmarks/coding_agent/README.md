@@ -100,12 +100,20 @@ Git 并提交 `evaluation baseline`。它不会复制 `case.json`、`task.txt` �
 `max_tool_calls`，再调用现有的 `minicode run`。它始终以执行命令时的当前目录作为
 Agent Workspace，因此上面的 `cd "$evaluation_workspace"` 不能省略。该入口只负责
 启动 Agent 和打印 Trace，不复制工作区、不运行隐藏验收，也不生成 `result.json`。
+评测入口还把模型客户端的 SDK 自动重试设为 0：每个 Agent 模型调用最多一次客户端请求尝试；
+普通 `minicode run` 保持原默认重试 2 次。该规则对所有经 `evaluation_run` 启动的评测生效，
+不只是 Skill 对照。它不限制单次 Token 或总费用，比较旧批次时要留意代码版本。
+
+Skill 任务评测可以追加 `--skills-root /absolute/path/to/trusted/skills`，使用普通 CLI 的显式本地
+Skill 加载路径。省略参数仍默认关闭；相对路径基于当前评测工作区，含空格的路径需在 Shell 中加引号。
+该参数不能与冻结的 `--context-protocol` 合用，因为现有上下文协议没有包含 Skill 指令。
+`--arm` 的含义仍是上下文配置；Skill 任务开关对照说明见 `benchmarks/skill_task_comparison/v1/README.md`。
 
 模型运行结束后，返回 MiniCode 仓库并生成结果记录：
 
 ```bash
 cd "$project_root"
-model_name="${DASHSCOPE_MODEL:-qwen3.7-flash-2026-07-15}"
+model_name="${DASHSCOPE_MODEL:-qwen3.7-flash}"
 
 "$project_root/.venv/bin/python" -m minicode.evaluation_result \
   --case-root "$case_root" \
@@ -116,6 +124,13 @@ model_name="${DASHSCOPE_MODEL:-qwen3.7-flash-2026-07-15}"
   --model "$model_name" \
   --agent-exit-code "$agent_exit_code"
 ```
+
+做 Skill 任务级对照时，运行阶段 baseline 不传 `--skills-root`、treatment 传入受信任的 Skill 目录；
+结果阶段必须在上面的记录命令末尾分别加 `--skill-arm baseline` 或 `--skill-arm treatment`。
+记录器根据 Trace 核对声明，并在 `result.json.skill_experiment` 中保存组别、实际选中名称和加载成功名称。
+开启却无匹配 Skill 仍记录为 treatment、名称列表为空；普通非 Skill 实验记录不需要此参数。
+Skill 实验不能与下面的 Context Projection 协议混用。完整对照约束见
+`benchmarks/skill_task_comparison/v1/README.md`。
 
 记录 Context Projection 实验时，必须把与运行阶段相同的 Arm 和预注册协议 ID 一起交给
 记录器：
@@ -164,6 +179,9 @@ PASS <case_name>: /tmp/.../result.json
 不要把 `acceptance.py` 复制进工作区。它代表评测者掌握、模型不可见的检查。
 
 `result.json` 不重复保存回答、Trace 或代码补丁正文，而是记录文件名和 SHA-256。
+其中 `run.model_calls_with_usage`、`run.model_calls_missing_usage` 与 `run.usage_complete`
+表明模型 Token usage 是否齐全；`run.input_tokens`、`run.output_tokens` 在不齐全时只表示
+已报告部分的和，不能当作总成本。旧结果可能没有这三个新字段，不应默认解释为齐全。
 结果记录器会在隐藏验收之前把 Agent 对已跟踪文件的修改保存为 `workspace.patch`。
 请将 `answer.txt`、`trace.txt`、`workspace.patch` 和 `result.json` 作为同一个原始
 结果目录保留。记录器使用排他创建模式；如果 `result.json` 或 `workspace.patch` 已
@@ -185,6 +203,18 @@ PASS <case_name>: /tmp/.../result.json
 
 当前基线每个 Case 只有一次正式运行，因此汇总中的 `3/3` 只能描述这个小样本批次，
 不能表述为 MiniCode 的一般任务成功率。
+
+普通汇总会显示 usage 为 `complete`、`incomplete` 或 `unknown`，并把 Token 合计称为
+`Reported input/output tokens`（已报告的部分）。需要核对成本数据是否可用时执行：
+
+```bash
+.venv/bin/python -m minicode.evaluation_summary \
+  /absolute/path/to/results --require-complete-usage
+```
+
+所有运行都明确记录 usage 齐全才输出 `Provider usage gate: PASS` 并返回 0；有缺失或旧记录
+无法确认齐全时输出 FAIL 并返回 1。任务成功比例仍独立显示。该参数用于普通/Skill 结果汇总，
+与上下文协议汇总参数互斥。它发生在结果生成之后，尚不会自动阻止下一次模型请求。
 
 预注册的 Context Projection A/B 实验使用严格的正式结果目录：
 

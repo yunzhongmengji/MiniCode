@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TypedDict
 from uuid import uuid4
 
 from minicode.coding_agent import build_coding_agent
@@ -23,15 +23,23 @@ from minicode.core.context_projection_config import (
     BudgetedContextProjectionConfiguration,
 )
 from minicode.core.events import EventLedger, InMemoryEventLedger
-from minicode.core.file_checkpoint_store import FileCheckpointStore
-from minicode.core.model import ModelError
+from minicode.core.file_checkpoint_store import (
+    FileCheckpointStore,
+    workspace_checkpoint_root,
+)
+from minicode.core.model import ModelError, ModelRunBudget
 from minicode.core.query_loop import RunResult, StopReason
+from minicode.core.tool_approval import ToolApprover
 from minicode.core.tool_calls import to_plain_json
 from minicode.models.dashscope import (
     DashScopeConfig,
     build_dashscope_client,
     build_dashscope_model,
 )
+from minicode.skills.context import SkillContextBuilder, SkillContextProvider
+from minicode.skills.discovery import FileSkillCatalogLoader, SkillCatalogLoadError
+from minicode.skills.loader import FileSkillLoader, SkillLoadError
+from minicode.skills.router import KeywordSkillRouter
 from minicode.tools.process import AsyncioProcessRunner
 from minicode.workspace import Workspace
 
@@ -42,6 +50,13 @@ class _CliConfigurationError(ValueError):
 
 class _CliCheckpointError(ValueError):
     """A checkpoint problem that can be explained to CLI users."""
+
+
+class _EvaluationRunOptions(TypedDict, total=False):
+    """Optional internal wiring, absent from ordinary CLI calls."""
+
+    model_budget: ModelRunBudget
+    approver: ToolApprover
 
 
 async def _execute_coding_task(
@@ -56,6 +71,10 @@ async def _execute_coding_task(
         BudgetedContextProjectionConfiguration | None
     ) = None,
     expected_model: str | None = None,
+    skills_root: Path | None = None,
+    model_max_retries: int | None = None,
+    model_budget: ModelRunBudget | None = None,
+    approver: ToolApprover | None = None,
 ) -> RunResult:
     """Compose and execute one fresh or resumed coding task."""
     try:
@@ -69,19 +88,52 @@ async def _execute_coding_task(
             f"expected {expected_model}, got {config.model}"
         )
 
-    client = build_dashscope_client(config)
+    skill_context_provider: SkillContextProvider | None = None
+
+    if skills_root is not None:
+        try:
+            skill_workspace = Workspace(skills_root)
+            catalog = await FileSkillCatalogLoader(
+                skill_root=skill_workspace,
+            ).load()
+        except (OSError, UnicodeError, SkillCatalogLoadError, ValueError) as error:
+            raise _CliConfigurationError(
+                f"cannot load Skill directory: {error}"
+            ) from error
+
+        skill_context_provider = SkillContextBuilder(
+            router=KeywordSkillRouter(catalog=catalog),
+            loader=FileSkillLoader(skill_root=skill_workspace),
+            event_ledger=event_ledger,
+        )
+
+    client = (
+        build_dashscope_client(config)
+        if model_max_retries is None
+        else build_dashscope_client(config, max_retries=model_max_retries)
+    )
 
     try:
         workspace_root = Path.cwd().resolve()
-        checkpoint_store = FileCheckpointStore(
-            _checkpoint_root(
-                workspace_root,
-                os.environ,
+        try:
+            checkpoint_store = FileCheckpointStore(
+                _checkpoint_root(
+                    workspace_root,
+                    os.environ,
+                )
             )
-        )
-        model = build_dashscope_model(
-            config,
-            client=client,
+        except OSError as error:
+            raise _CliCheckpointError(
+                f"could not open checkpoint store: {error}"
+            ) from error
+        model = (
+            build_dashscope_model(config, client=client)
+            if model_budget is None
+            else build_dashscope_model(
+                config,
+                client=client,
+                max_output_tokens=model_budget.max_response_output_tokens,
+            )
         )
         agent = build_coding_agent(
             model=model,
@@ -89,7 +141,7 @@ async def _execute_coding_task(
                 root=workspace_root,
             ),
             process_runner=AsyncioProcessRunner(),
-            approver=ConsoleToolApprover(),
+            approver=ConsoleToolApprover() if approver is None else approver,
             event_ledger=event_ledger,
             artifact_store=artifact_store,
             checkpoint_store=checkpoint_store,
@@ -97,6 +149,8 @@ async def _execute_coding_task(
             max_tool_calls=max_tool_calls,
             max_inline_tool_result_bytes=max_inline_tool_result_bytes,
             budgeted_context_configuration=budgeted_context_configuration,
+            skill_context_provider=skill_context_provider,
+            model_budget=model_budget,
         )
 
         if isinstance(starting_input, RunCheckpoint):
@@ -122,8 +176,9 @@ def _checkpoint_root(
     else:
         state_home = Path.home() / ".local" / "state"
 
-    workspace_key = hashlib.sha256(str(workspace_root).encode("utf-8")).hexdigest()
-    return state_home / "minicode" / "checkpoints" / workspace_key
+    return workspace_checkpoint_root(
+        workspace_root=workspace_root, state_home=state_home
+    )
 
 
 def _load_checkpoint(
@@ -222,6 +277,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the ordered execution trace.",
     )
     run_parser.add_argument(
+        "--skills-root",
+        type=Path,
+        help="Use Skill instructions from this trusted local directory.",
+    )
+    run_parser.add_argument(
         "--max-turns",
         type=_positive_integer,
         default=8,
@@ -271,6 +331,9 @@ def main(
         BudgetedContextProjectionConfiguration | None
     ) = None,
     expected_model: str | None = None,
+    model_max_retries: int | None = None,
+    model_budget: ModelRunBudget | None = None,
+    approver: ToolApprover | None = None,
 ) -> int:
     """Run the MiniCode command-line interface."""
     parser = build_parser()
@@ -319,6 +382,11 @@ def main(
         run_id=run_id,
     )
     artifact_store = InMemoryArtifactStore() if args.trace else None
+    evaluation_options: _EvaluationRunOptions = {}
+    if model_budget is not None:
+        evaluation_options["model_budget"] = model_budget
+    if approver is not None:
+        evaluation_options["approver"] = approver
 
     try:
         try:
@@ -330,15 +398,28 @@ def main(
                     event_ledger=event_ledger,
                     artifact_store=artifact_store,
                     max_inline_tool_result_bytes=max_inline_tool_result_bytes,
-                    budgeted_context_configuration=(
-                        budgeted_context_configuration
-                    ),
+                    budgeted_context_configuration=(budgeted_context_configuration),
                     expected_model=expected_model,
+                    skills_root=(args.skills_root if args.command == "run" else None),
+                    model_max_retries=model_max_retries,
+                    **evaluation_options,
                 )
             )
         except _CliConfigurationError as error:
             print(
                 f"Configuration error: {error}",
+                file=sys.stderr,
+            )
+            return 2
+        except _CliCheckpointError as error:
+            print(
+                f"Checkpoint error: {error}",
+                file=sys.stderr,
+            )
+            return 2
+        except SkillLoadError as error:
+            print(
+                f"Skill error: {error}",
                 file=sys.stderr,
             )
             return 2

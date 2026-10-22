@@ -44,6 +44,22 @@ class SkillRoutingResult:
         """Return whether selection exactly matches expectation."""
         return self.selected_skill_names == self.case.expected_skill_names
 
+    @property
+    def missing_skill_names(self) -> tuple[str, ...]:
+        """Return unselected expected names in their original order."""
+        selected = set(self.selected_skill_names)
+
+        return tuple(
+            name for name in self.case.expected_skill_names if name not in selected
+        )
+
+    @property
+    def unexpected_skill_names(self) -> tuple[str, ...]:
+        """Return unexpected selected names in their original order."""
+        expected = set(self.case.expected_skill_names)
+
+        return tuple(name for name in self.selected_skill_names if name not in expected)
+
 
 @dataclass(frozen=True, slots=True)
 class SkillRoutingReport:

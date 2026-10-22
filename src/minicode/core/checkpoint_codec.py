@@ -9,7 +9,7 @@ from minicode.core.conversation import ConversationItem
 from minicode.core.messages import Message, MessageRole
 from minicode.core.tool_calls import JsonValue, ToolCall, ToolResult, to_plain_json
 
-_SCHEMA_VERSION = 2
+_SKILL_SCHEMA_VERSION = 3
 
 
 def checkpoint_to_json(checkpoint: RunCheckpoint) -> str:
@@ -18,7 +18,9 @@ def checkpoint_to_json(checkpoint: RunCheckpoint) -> str:
         raise TypeError("checkpoint must be a RunCheckpoint")
 
     document: dict[str, JsonValue] = {
-        "schema_version": _SCHEMA_VERSION,
+        "schema_version": (
+            _SKILL_SCHEMA_VERSION if checkpoint.skill_instructions is not None else 2
+        ),
         "run_id": checkpoint.run_id,
         "message_history": tuple(
             _encode_history_item(item) for item in checkpoint.message_history
@@ -27,6 +29,9 @@ def checkpoint_to_json(checkpoint: RunCheckpoint) -> str:
         "tool_calls_used": checkpoint.tool_calls_used,
         "is_completed": checkpoint.is_completed,
     }
+    if checkpoint.skill_instructions is not None:
+        document["skill_instructions"] = checkpoint.skill_instructions
+
     return json.dumps(
         to_plain_json(document),
         ensure_ascii=False,
@@ -45,8 +50,11 @@ def checkpoint_from_json(document: str) -> RunCheckpoint:
     source = cast(Mapping[str, object], decoded)
     schema_version = _required_integer(source, "schema_version")
 
-    if schema_version not in (1, _SCHEMA_VERSION):
+    if schema_version not in (1, 2, _SKILL_SCHEMA_VERSION):
         raise ValueError(f"unsupported checkpoint schema {schema_version}")
+
+    if schema_version < _SKILL_SCHEMA_VERSION and "skill_instructions" in source:
+        raise ValueError("skill_instructions requires checkpoint schema 3")
 
     history = _required_list(source, "message_history")
     return RunCheckpoint(
@@ -55,7 +63,12 @@ def checkpoint_from_json(document: str) -> RunCheckpoint:
         turns_used=_required_integer(source, "turns_used"),
         tool_calls_used=_required_integer(source, "tool_calls_used"),
         is_completed=(
-            _required_boolean(source, "is_completed") if schema_version == 2 else False
+            _required_boolean(source, "is_completed") if schema_version >= 2 else False
+        ),
+        skill_instructions=(
+            _required_string(source, "skill_instructions")
+            if schema_version == _SKILL_SCHEMA_VERSION
+            else None
         ),
     )
 

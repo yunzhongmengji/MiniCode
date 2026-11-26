@@ -5,15 +5,15 @@ import json
 
 from pydantic import Field, field_validator
 
-from minicode.tools.base import ToolExecutionError
-from minicode.tools.file_selection import DEFAULT_EXCLUDED_DIRECTORY_NAMES
-from minicode.tools.schema import ToolArguments
-from minicode.tools.spec import ToolSpec
-from minicode.workspace import (
+from minicode.runtime.workspace import (
     Workspace,
     WorkspaceFileLimitError,
     WorkspacePathError,
 )
+from minicode.tools.base import ToolExecutionError
+from minicode.tools.file_selection import DEFAULT_EXCLUDED_DIRECTORY_NAMES
+from minicode.tools.schema import ToolArguments
+from minicode.tools.spec import ToolSpec
 
 _DEFAULT_MAX_FILES = 1_000
 

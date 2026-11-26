@@ -1,13 +1,9 @@
-"""OpenAI-compatible model adapter and payload conversion."""
+"""OpenAI-compatible model adapter built on Pydantic v2 schemas."""
+
+from __future__ import annotations
 
 import json
-from collections.abc import (
-    AsyncIterable,
-    AsyncIterator,
-    Mapping,
-    Sequence,
-)
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
 from openai import (
@@ -21,397 +17,182 @@ from openai import (
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionAssistantMessageParam,
-    ChatCompletionChunk,
     ChatCompletionFunctionToolParam,
     ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionMessageParam,
 )
 
-from minicode.core.conversation import ConversationItem
-from minicode.core.messages import Message, MessageRole
-from minicode.core.model import (
+from minicode.models.base import (
     ModelAccessDeniedError,
     ModelAuthenticationError,
     ModelConnectionError,
     ModelError,
     ModelProtocolError,
-    ModelQuotaExceededError,
     ModelRateLimitError,
     ModelRequest,
     ModelResponse,
-    ModelResponseDone,
     ModelServiceError,
-    ModelStreamEvent,
-    ModelTextDelta,
-    ModelUsage,
 )
-from minicode.core.tool_calls import (
-    ToolCall,
-    ToolResult,
-    to_plain_json,
+from minicode.schemas.messages import (
+    HistoryEntry,
+    MessageRecord,
+    MessageRole,
+    TokenUsage,
+    ToolCallRecord,
+    ToolResultRecord,
 )
 from minicode.tools.spec import ToolSpec
 
 
 class _CompletionCreateOptions(TypedDict, total=False):
-    """Optional keyword arguments for an SDK completion request."""
-
     extra_body: object
     max_completion_tokens: int
-
-
-@dataclass(slots=True)
-class _ToolCallAccumulator:
-    """Collect fragments for one streamed tool call."""
-
-    call_id: str | None = None
-    name: str | None = None
-    tool_type: str | None = None
-    argument_parts: list[str] = field(
-        default_factory=list,
-    )
-
-
-def _tool_call_from_json(
-    *,
-    call_id: str,
-    name: str,
-    arguments_json: str,
-) -> ToolCall:
-    """Build a validated MiniCode tool call from provider fields."""
-    try:
-        arguments = json.loads(arguments_json)
-    except json.JSONDecodeError as error:
-        raise ModelProtocolError(
-            "model returned invalid JSON tool arguments"
-        ) from error
-
-    if not isinstance(arguments, Mapping):
-        raise ModelProtocolError("model tool-call arguments must decode to an object")
-
-    try:
-        return ToolCall(
-            call_id=call_id,
-            name=name,
-            arguments=arguments,
-        )
-    except (TypeError, ValueError) as error:
-        raise ModelProtocolError("model returned invalid tool call") from error
 
 
 def tool_spec_to_openai_tool(
     tool_spec: ToolSpec,
 ) -> ChatCompletionFunctionToolParam:
-    """Convert MiniCode tool metadata into an OpenAI function tool."""
+    """Convert MiniCode ToolSpec into an OpenAI function tool schema."""
     return {
         "type": "function",
         "function": {
             "name": tool_spec.name,
             "description": tool_spec.description,
-            "parameters": (tool_spec.arguments_type.model_json_schema()),
+            "parameters": tool_spec.arguments_type.model_json_schema(),
         },
     }
 
 
-def _tool_call_to_openai_tool_call(
-    tool_call: ToolCall,
-) -> ChatCompletionMessageFunctionToolCallParam:
-    """Convert one MiniCode tool call into OpenAI history format."""
-    arguments_json = json.dumps(
-        to_plain_json(tool_call.arguments),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
-    return {
-        "id": tool_call.call_id,
-        "type": "function",
-        "function": {
-            "name": tool_call.name,
-            "arguments": arguments_json,
-        },
-    }
-
-
-def _append_pending_assistant_message(
+def _append_pending_assistant(
     messages: list[ChatCompletionMessageParam],
     content: str | None,
     tool_calls: list[ChatCompletionMessageFunctionToolCallParam],
 ) -> None:
-    """Append a pending assistant message when it has content."""
     if content is None and not tool_calls:
         return
-
-    assistant_message: ChatCompletionAssistantMessageParam = {
-        "role": "assistant",
-    }
-
+    assistant_msg: ChatCompletionAssistantMessageParam = {"role": "assistant"}
     if content is not None:
-        assistant_message["content"] = content
-
+        assistant_msg["content"] = content
     if tool_calls:
-        assistant_message["tool_calls"] = tool_calls
-
-    messages.append(assistant_message)
+        assistant_msg["tool_calls"] = list(tool_calls)
+    messages.append(assistant_msg)
 
 
 def conversation_to_openai_messages(
-    conversation: Sequence[ConversationItem],
+    conversation: Sequence[HistoryEntry],
+    *,
+    instructions: Sequence[str] = (),
 ) -> list[ChatCompletionMessageParam]:
-    """Convert MiniCode conversation items into OpenAI messages."""
-    messages: list[ChatCompletionMessageParam] = []
-
-    pending_assistant_content: str | None = None
-    pending_tool_calls: list[ChatCompletionMessageFunctionToolCallParam] = []
+    """Translate MiniCode history entries and system instructions into OpenAI messages."""
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "system", "content": instruction} for instruction in instructions
+    ]
+    pending_content: str | None = None
+    pending_calls: list[ChatCompletionMessageFunctionToolCallParam] = []
 
     for item in conversation:
-        if isinstance(item, ToolCall):
-            pending_tool_calls.append(_tool_call_to_openai_tool_call(item))
-            continue
-
-        if isinstance(item, Message) and item.role is MessageRole.ASSISTANT:
-            _append_pending_assistant_message(
-                messages,
-                pending_assistant_content,
-                pending_tool_calls,
+        if isinstance(item, MessageRecord):
+            if item.role is MessageRole.ASSISTANT:
+                _append_pending_assistant(messages, pending_content, pending_calls)
+                pending_content = item.content
+                pending_calls = []
+                continue
+            _append_pending_assistant(messages, pending_content, pending_calls)
+            pending_content = None
+            pending_calls = []
+            if item.role is MessageRole.SYSTEM:
+                messages.append({"role": "system", "content": item.content})
+            else:
+                messages.append({"role": "user", "content": item.content})
+        elif isinstance(item, ToolCallRecord):
+            pending_calls.append(
+                {
+                    "id": item.call_id,
+                    "type": "function",
+                    "function": {
+                        "name": item.name,
+                        "arguments": json.dumps(
+                            item.arguments,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    },
+                }
             )
-            pending_assistant_content = item.content
-            pending_tool_calls = []
-            continue
-
-        _append_pending_assistant_message(
-            messages,
-            pending_assistant_content,
-            pending_tool_calls,
-        )
-        pending_assistant_content = None
-        pending_tool_calls = []
-
-        if isinstance(item, ToolResult):
-            content = item.output
-
-            if item.is_error:
-                content = f"Tool execution failed: {item.output}"
-
+        elif isinstance(item, ToolResultRecord):
+            _append_pending_assistant(messages, pending_content, pending_calls)
+            pending_content = None
+            pending_calls = []
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": item.call_id,
-                    "content": content,
+                    "content": item.output,
                 }
             )
-            continue
 
-        if not isinstance(item, Message):
-            raise NotImplementedError(
-                "tool conversation conversion is not implemented yet"
-            )
-
-        if item.role is MessageRole.SYSTEM:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": item.content,
-                }
-            )
-        elif item.role is MessageRole.USER:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": item.content,
-                }
-            )
-        else:
-            raise ValueError("tool messages require a structured ToolResult")
-
-    _append_pending_assistant_message(
-        messages,
-        pending_assistant_content,
-        pending_tool_calls,
-    )
-
+    _append_pending_assistant(messages, pending_content, pending_calls)
     return messages
 
 
-def model_request_to_openai_messages(
-    request: ModelRequest,
-) -> list[ChatCompletionMessageParam]:
-    """Convert one complete request into OpenAI messages."""
-    messages: list[ChatCompletionMessageParam] = [
-        {
-            "role": "system",
-            "content": instruction,
-        }
-        for instruction in request.instructions
-    ]
-
-    messages.extend(conversation_to_openai_messages(request.conversation))
-
-    return messages
-
-
-def openai_completion_to_model_response(
-    completion: ChatCompletion,
-) -> ModelResponse:
-    """Convert an OpenAI chat completion into a MiniCode response."""
+def _parse_completion(completion: ChatCompletion) -> ModelResponse:
     if not completion.choices:
-        raise ModelProtocolError("model returned no choices")
+        raise ModelProtocolError("provider returned completion with no choices")
 
     message = completion.choices[0].message
     content = message.content or ""
-    tool_calls: list[ToolCall] = []
+    tool_calls: list[ToolCallRecord] = []
 
-    for openai_tool_call in message.tool_calls or []:
-        if openai_tool_call.type != "function":
-            raise ModelProtocolError("model returned unsupported tool-call type")
-
+    for raw_call in message.tool_calls or ():
+        if raw_call.type != "function":
+            continue
+        try:
+            decoded_args = json.loads(raw_call.function.arguments or "{}")
+        except json.JSONDecodeError as error:
+            raise ModelProtocolError(
+                "model returned invalid JSON tool arguments"
+            ) from error
+        if not isinstance(decoded_args, Mapping):
+            raise ModelProtocolError("model tool arguments must decode to an object")
         tool_calls.append(
-            _tool_call_from_json(
-                call_id=openai_tool_call.id,
-                name=openai_tool_call.function.name,
-                arguments_json=(openai_tool_call.function.arguments),
+            ToolCallRecord(
+                call_id=raw_call.id,
+                name=raw_call.function.name,
+                arguments=dict(decoded_args),
             )
         )
 
-    usage = None
-
+    usage: TokenUsage | None = None
     if completion.usage is not None:
-        usage = ModelUsage(
-            input_tokens=(completion.usage.prompt_tokens),
-            output_tokens=(completion.usage.completion_tokens),
+        usage = TokenUsage(
+            input_tokens=completion.usage.prompt_tokens,
+            output_tokens=completion.usage.completion_tokens,
         )
 
     return ModelResponse(
         content=content,
-        tool_calls=tool_calls,
+        tool_calls=tuple(tool_calls),
         usage=usage,
     )
 
 
-async def openai_completion_stream_to_events(
-    chunks: AsyncIterable[ChatCompletionChunk],
-) -> AsyncIterator[ModelStreamEvent]:
-    """Convert OpenAI completion chunks into MiniCode stream events."""
-    content_parts: list[str] = []
-    finish_reason: str | None = None
-    usage: ModelUsage | None = None
-    tool_call_accumulators: dict[
-        int,
-        _ToolCallAccumulator,
-    ] = {}
-
-    async for chunk in chunks:
-        if chunk.usage is not None:
-            usage = ModelUsage(
-                input_tokens=(chunk.usage.prompt_tokens),
-                output_tokens=(chunk.usage.completion_tokens),
-            )
-
-        if not chunk.choices:
-            continue
-
-        choice = chunk.choices[0]
-
-        if choice.finish_reason is not None:
-            finish_reason = choice.finish_reason
-
-        for tool_call_delta in choice.delta.tool_calls or []:
-            accumulator = tool_call_accumulators.get(tool_call_delta.index)
-
-            if accumulator is None:
-                accumulator = _ToolCallAccumulator()
-                tool_call_accumulators[tool_call_delta.index] = accumulator
-
-            if tool_call_delta.id is not None:
-                accumulator.call_id = tool_call_delta.id
-
-            if tool_call_delta.type is not None:
-                accumulator.tool_type = tool_call_delta.type
-
-            if tool_call_delta.function is not None:
-                if tool_call_delta.function.name is not None:
-                    accumulator.name = tool_call_delta.function.name
-
-                if tool_call_delta.function.arguments is not None:
-                    accumulator.argument_parts.append(
-                        tool_call_delta.function.arguments
-                    )
-
-        content = choice.delta.content
-
-        if content is None or content == "":
-            continue
-
-        content_parts.append(content)
-
-        yield ModelTextDelta(
-            text=content,
-        )
-
-    if finish_reason is None:
-        raise ModelProtocolError("model stream ended without a finish reason")
-
-    if finish_reason not in (
-        "stop",
-        "tool_calls",
-    ):
-        raise ModelProtocolError(f"model stream did not complete: {finish_reason}")
-
-    tool_calls: list[ToolCall] = []
-
-    for index in sorted(tool_call_accumulators):
-        accumulator = tool_call_accumulators[index]
-
-        if accumulator.tool_type != "function":
-            raise ModelProtocolError("model returned unsupported tool-call type")
-
-        if accumulator.call_id is None or accumulator.name is None:
-            raise ModelProtocolError("model returned invalid tool call")
-
-        tool_calls.append(
-            _tool_call_from_json(
-                call_id=accumulator.call_id,
-                name=accumulator.name,
-                arguments_json="".join(accumulator.argument_parts),
-            )
-        )
-
-    complete_content = "".join(content_parts)
-
-    yield ModelResponseDone(
-        response=ModelResponse(
-            content=complete_content,
-            tool_calls=tool_calls,
-            usage=usage,
-        ),
-    )
-
-
-def _translate_openai_error(
-    error: APIConnectionError | APIStatusError,
-) -> ModelError:
-    """Translate an OpenAI SDK error into a provider-neutral model error."""
+def _translate_sdk_error(error: Exception) -> ModelError:
     if isinstance(error, AuthenticationError):
-        return ModelAuthenticationError("model authentication failed")
-
+        return ModelAuthenticationError(str(error))
     if isinstance(error, PermissionDeniedError):
-        if error.code == "AllocationQuota.FreeTierOnly":
-            return ModelQuotaExceededError("model free quota exhausted")
-
-        return ModelAccessDeniedError("model access denied")
-
+        return ModelAccessDeniedError(str(error))
     if isinstance(error, RateLimitError):
-        return ModelRateLimitError("model rate limit exceeded")
-
+        return ModelRateLimitError(str(error))
     if isinstance(error, APIConnectionError):
-        return ModelConnectionError("model service connection failed")
-
-    return ModelServiceError("model service request failed")
+        return ModelConnectionError(str(error))
+    if isinstance(error, APIStatusError):
+        return ModelServiceError(f"provider HTTP {error.status_code}: {error.message}")
+    return ModelServiceError(str(error))
 
 
 class OpenAICompatibleModel:
-    """Call an OpenAI-compatible chat completion API."""
+    """Async OpenAI-compatible Chat Completions adapter."""
 
     def __init__(
         self,
@@ -421,43 +202,25 @@ class OpenAICompatibleModel:
         extra_body: Mapping[str, object] | None = None,
         max_output_tokens: int | None = None,
     ) -> None:
-        if not isinstance(model, str):
-            raise TypeError("model must be a string")
-
         if not model.strip():
             raise ValueError("model must not be blank")
-        if extra_body is not None and not isinstance(
-            extra_body,
-            Mapping,
-        ):
-            raise TypeError("extra_body must be a mapping")
-
-        if max_output_tokens is not None:
-            if type(max_output_tokens) is not int:
-                raise TypeError("max_output_tokens must be an integer or None")
-            if max_output_tokens <= 0:
-                raise ValueError("max_output_tokens must be greater than zero")
-        self._max_output_tokens = max_output_tokens
         self._client = client
         self._model = model
         self._extra_body = dict(extra_body) if extra_body is not None else None
+        self._max_output_tokens = max_output_tokens
 
-    async def complete(
-        self,
-        request: ModelRequest,
-    ) -> ModelResponse:
-        """Complete a normalized MiniCode model request."""
-        messages = model_request_to_openai_messages(request)
-        tools = [
-            tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
-        ]
-        create_options: _CompletionCreateOptions = {}
-
-        if self._max_output_tokens is not None:
-            create_options["max_completion_tokens"] = self._max_output_tokens
-
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        """Send one provider-neutral request and return a validated ModelResponse."""
+        messages = conversation_to_openai_messages(
+            request.conversation,
+            instructions=request.instructions,
+        )
+        tools = [tool_spec_to_openai_tool(spec) for spec in request.tool_specs]
+        options: _CompletionCreateOptions = {}
         if self._extra_body is not None:
-            create_options["extra_body"] = self._extra_body
+            options["extra_body"] = self._extra_body
+        if self._max_output_tokens is not None:
+            options["max_completion_tokens"] = self._max_output_tokens
 
         try:
             if tools:
@@ -465,67 +228,21 @@ class OpenAICompatibleModel:
                     model=self._model,
                     messages=messages,
                     tools=tools,
-                    **create_options,
+                    **options,
                 )
             else:
                 completion = await self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
-                    **create_options,
+                    **options,
                 )
         except (
+            AuthenticationError,
+            PermissionDeniedError,
+            RateLimitError,
             APIConnectionError,
             APIStatusError,
         ) as error:
-            raise _translate_openai_error(error) from error
+            raise _translate_sdk_error(error) from error
 
-        return openai_completion_to_model_response(completion)
-
-    async def stream(
-        self,
-        request: ModelRequest,
-    ) -> AsyncIterator[ModelStreamEvent]:
-        """Stream a normalized MiniCode model request."""
-        messages = model_request_to_openai_messages(request)
-        tools = [
-            tool_spec_to_openai_tool(tool_spec) for tool_spec in request.tool_specs
-        ]
-        create_options: _CompletionCreateOptions = {}
-
-        if self._max_output_tokens is not None:
-            create_options["max_completion_tokens"] = self._max_output_tokens
-
-        if self._extra_body is not None:
-            create_options["extra_body"] = self._extra_body
-
-        try:
-            if tools:
-                chunks = await self._client.chat.completions.create(
-                    model=self._model,
-                    messages=messages,
-                    tools=tools,
-                    stream=True,
-                    stream_options={
-                        "include_usage": True,
-                    },
-                    **create_options,
-                )
-            else:
-                chunks = await self._client.chat.completions.create(
-                    model=self._model,
-                    messages=messages,
-                    stream=True,
-                    stream_options={
-                        "include_usage": True,
-                    },
-                    **create_options,
-                )
-
-            async for event in openai_completion_stream_to_events(chunks):
-                yield event
-
-        except (
-            APIConnectionError,
-            APIStatusError,
-        ) as error:
-            raise _translate_openai_error(error) from error
+        return _parse_completion(completion)

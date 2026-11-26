@@ -1,12 +1,14 @@
 [project]
 name = "minicode-agent"
-version = "0.1.0"
-description = "A local-first, auditable, and reproducible coding agent runtime."
+version = "0.2.0"
+description = "A production-grade, recoverable, sandboxed AI Coding Agent Runtime."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.165.0",
     "openai>=3.3.1,<4",
     "pydantic>=2.12,<3",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
@@ -21,6 +23,7 @@ packages = ["src/minicode"]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -32,7 +35,6 @@ python_version = "3.12"
 strict = true
 files = [
     "src",
-    "typechecks",
 ]
 
 [tool.pytest.ini_options]

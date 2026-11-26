@@ -4,14 +4,14 @@ import sys
 
 from pydantic import Field, field_validator
 
+from minicode.runtime.workspace import (
+    Workspace,
+    WorkspacePathError,
+)
 from minicode.tools.base import ToolExecutionError
 from minicode.tools.process import ProcessOutputLimitError, ProcessRunner
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
-from minicode.workspace import (
-    Workspace,
-    WorkspacePathError,
-)
 
 
 class RunTestsArguments(ToolArguments):

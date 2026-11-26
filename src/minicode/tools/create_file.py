@@ -5,10 +5,10 @@ import json
 
 from pydantic import Field, field_validator
 
+from minicode.runtime.workspace import Workspace, WorkspacePathError
 from minicode.tools.base import ToolExecutionError
 from minicode.tools.schema import ToolArguments
 from minicode.tools.spec import ToolSpec
-from minicode.workspace import Workspace, WorkspacePathError
 
 _DEFAULT_MAX_BYTES = 100_000
 

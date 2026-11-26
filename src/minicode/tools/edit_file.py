@@ -4,14 +4,14 @@ import asyncio
 
 from pydantic import Field, field_validator
 
-from minicode.tools.base import ToolExecutionError
-from minicode.tools.schema import ToolArguments
-from minicode.tools.spec import ToolSpec
-from minicode.workspace import (
+from minicode.runtime.workspace import (
     Workspace,
     WorkspacePathError,
     WorkspaceReadLimitError,
 )
+from minicode.tools.base import ToolExecutionError
+from minicode.tools.schema import ToolArguments
+from minicode.tools.spec import ToolSpec
 
 
 class EditFileArguments(ToolArguments):

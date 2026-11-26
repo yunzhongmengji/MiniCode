@@ -1,0 +1,8 @@
+{
+  "case_id": "01_cross_file_pricing",
+  "title": "Cross-file double discount pricing bug",
+  "category": "cross_file_logic",
+  "prompt": "Fix the cross-file pricing bug where VIP orders are discounted twice across pricing/discounts.py and pricing/checkout.py.",
+  "expected_skill": "debug_pytest",
+  "verify_script": "verify_test.py"
+}

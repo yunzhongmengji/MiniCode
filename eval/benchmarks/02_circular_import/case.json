@@ -1,0 +1,8 @@
+{
+  "case_id": "02_circular_import",
+  "title": "Circular import between models and serializers",
+  "category": "import_dependency",
+  "prompt": "Resolve the circular ImportError between app/models.py and app/serializers.py so both modules can be imported cleanly in any order.",
+  "expected_skill": "fix_imports",
+  "verify_script": "verify_test.py"
+}

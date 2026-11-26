@@ -16,7 +16,19 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Runtime SQLite databases and generated evaluation reports
+.minicode/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+eval/reports/
+
 # Build outputs
 build/
 dist/
 
+# Editor and OS artifacts
+.DS_Store
+.idea/
+.vscode/

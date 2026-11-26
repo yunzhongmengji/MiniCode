@@ -1,0 +1,8 @@
+{
+  "case_id": "04_async_concurrency_race",
+  "title": "Async shared-state race condition in worker counter",
+  "category": "concurrency",
+  "prompt": "Fix the async concurrency race condition across worker/counter.py and worker/runner.py so concurrent increments never lose updates.",
+  "expected_skill": "debug_pytest",
+  "verify_script": "verify_test.py"
+}

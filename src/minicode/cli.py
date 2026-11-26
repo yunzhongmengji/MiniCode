@@ -1,462 +1,165 @@
-"""Command-line interface for MiniCode."""
+"""Thin CLI entry point reusing MiniCode's unified SQLite RecoverableAgentRuntime."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
-import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TypedDict
-from uuid import uuid4
 
-from minicode.coding_agent import build_coding_agent
-from minicode.console_approval import ConsoleToolApprover
-from minicode.core.artifacts import (
-    ArtifactStore,
-    InMemoryArtifactStore,
-)
-from minicode.core.checkpoints import RunCheckpoint
-from minicode.core.context_projection_config import (
-    BudgetedContextProjectionConfiguration,
-)
-from minicode.core.events import EventLedger, InMemoryEventLedger
-from minicode.core.file_checkpoint_store import (
-    FileCheckpointStore,
-    workspace_checkpoint_root,
-)
-from minicode.core.model import ModelError, ModelRunBudget
-from minicode.core.query_loop import RunResult, StopReason
-from minicode.core.tool_approval import ToolApprover
-from minicode.core.tool_calls import to_plain_json
-from minicode.models.dashscope import (
+import uvicorn
+
+from minicode.models import (
     DashScopeConfig,
+    Model,
     build_dashscope_client,
     build_dashscope_model,
 )
-from minicode.skills.context import SkillContextBuilder, SkillContextProvider
-from minicode.skills.discovery import FileSkillCatalogLoader, SkillCatalogLoadError
-from minicode.skills.loader import FileSkillLoader, SkillLoadError
-from minicode.skills.router import KeywordSkillRouter
-from minicode.tools.process import AsyncioProcessRunner
-from minicode.workspace import Workspace
+from minicode.runtime import (
+    SessionRunResult,
+    Workspace,
+    build_local_tool_registry,
+    build_runtime,
+    replay,
+)
+from minicode.schemas import ApprovalDecision
+from minicode.skills.lazy import LazySkillRegistry
+from minicode.storage import SqliteRuntimeStorage
 
 
-class _CliConfigurationError(ValueError):
-    """A configuration problem that can be explained to CLI users."""
+def _default_db_path(workspace: Path) -> Path:
+    return workspace / ".minicode" / "runtime.sqlite3"
 
 
-class _CliCheckpointError(ValueError):
-    """A checkpoint problem that can be explained to CLI users."""
+def _build_default_model() -> Model:
+    config = DashScopeConfig.from_environment(os.environ)
+    client = build_dashscope_client(config)
+    return build_dashscope_model(config, client=client)
 
 
-class _EvaluationRunOptions(TypedDict, total=False):
-    """Optional internal wiring, absent from ordinary CLI calls."""
-
-    model_budget: ModelRunBudget
-    approver: ToolApprover
-
-
-async def _execute_coding_task(
-    starting_input: str | RunCheckpoint,
-    *,
-    max_turns: int,
-    max_tool_calls: int,
-    event_ledger: EventLedger,
-    artifact_store: ArtifactStore | None = None,
-    max_inline_tool_result_bytes: int | None = None,
-    budgeted_context_configuration: (
-        BudgetedContextProjectionConfiguration | None
-    ) = None,
-    expected_model: str | None = None,
-    skills_root: Path | None = None,
-    model_max_retries: int | None = None,
-    model_budget: ModelRunBudget | None = None,
-    approver: ToolApprover | None = None,
-) -> RunResult:
-    """Compose and execute one fresh or resumed coding task."""
-    try:
-        config = DashScopeConfig.from_environment(os.environ)
-    except ValueError as error:
-        raise _CliConfigurationError(str(error)) from error
-
-    if expected_model is not None and config.model != expected_model:
-        raise _CliConfigurationError(
-            "configured model does not match the registered experiment: "
-            f"expected {expected_model}, got {config.model}"
-        )
-
-    skill_context_provider: SkillContextProvider | None = None
-
-    if skills_root is not None:
-        try:
-            skill_workspace = Workspace(skills_root)
-            catalog = await FileSkillCatalogLoader(
-                skill_root=skill_workspace,
-            ).load()
-        except (OSError, UnicodeError, SkillCatalogLoadError, ValueError) as error:
-            raise _CliConfigurationError(
-                f"cannot load Skill directory: {error}"
-            ) from error
-
-        skill_context_provider = SkillContextBuilder(
-            router=KeywordSkillRouter(catalog=catalog),
-            loader=FileSkillLoader(skill_root=skill_workspace),
-            event_ledger=event_ledger,
-        )
-
-    client = (
-        build_dashscope_client(config)
-        if model_max_retries is None
-        else build_dashscope_client(config, max_retries=model_max_retries)
-    )
-
-    try:
-        workspace_root = Path.cwd().resolve()
-        try:
-            checkpoint_store = FileCheckpointStore(
-                _checkpoint_root(
-                    workspace_root,
-                    os.environ,
-                )
-            )
-        except OSError as error:
-            raise _CliCheckpointError(
-                f"could not open checkpoint store: {error}"
-            ) from error
-        model = (
-            build_dashscope_model(config, client=client)
-            if model_budget is None
-            else build_dashscope_model(
-                config,
-                client=client,
-                max_output_tokens=model_budget.max_response_output_tokens,
-            )
-        )
-        agent = build_coding_agent(
-            model=model,
-            workspace=Workspace(
-                root=workspace_root,
-            ),
-            process_runner=AsyncioProcessRunner(),
-            approver=ConsoleToolApprover() if approver is None else approver,
-            event_ledger=event_ledger,
-            artifact_store=artifact_store,
-            checkpoint_store=checkpoint_store,
-            max_turns=max_turns,
-            max_tool_calls=max_tool_calls,
-            max_inline_tool_result_bytes=max_inline_tool_result_bytes,
-            budgeted_context_configuration=budgeted_context_configuration,
-            skill_context_provider=skill_context_provider,
-            model_budget=model_budget,
-        )
-
-        if isinstance(starting_input, RunCheckpoint):
-            return await agent.resume(starting_input)
-
-        return await agent.run(starting_input)
-    finally:
-        await client.close()
-
-
-def _checkpoint_root(
-    workspace_root: Path,
-    environment: Mapping[str, str],
-) -> Path:
-    """Return the state directory for one workspace's checkpoints."""
-    configured_state_home = environment.get("XDG_STATE_HOME")
-
-    if configured_state_home:
-        state_home = Path(configured_state_home).expanduser()
-
-        if not state_home.is_absolute():
-            raise _CliConfigurationError("XDG_STATE_HOME must be an absolute path")
-    else:
-        state_home = Path.home() / ".local" / "state"
-
-    return workspace_checkpoint_root(
-        workspace_root=workspace_root, state_home=state_home
-    )
-
-
-def _load_checkpoint(
-    run_id: str,
-    *,
-    workspace_root: Path,
-    environment: Mapping[str, str],
-) -> RunCheckpoint:
-    """Load one run's latest checkpoint from this workspace."""
-    try:
-        store = FileCheckpointStore(
-            _checkpoint_root(
-                workspace_root,
-                environment,
-            )
-        )
-        checkpoint = store.latest(run_id)
-    except _CliConfigurationError:
-        raise
-    except (OSError, TypeError, ValueError) as error:
-        raise _CliCheckpointError(
-            f"could not load checkpoint for {run_id}: {error}"
-        ) from error
-
-    if checkpoint is None:
-        raise _CliCheckpointError(f"no checkpoint found for {run_id}")
-
-    if checkpoint.is_completed:
-        raise _CliCheckpointError(f"run {run_id} is already completed; cannot resume")
-
-    return checkpoint
-
-
-def _print_trace(
-    event_ledger: InMemoryEventLedger,
-) -> None:
-    """Render one completed run's ordered events to stderr."""
-    print(
-        f"Trace {event_ledger.run_id}",
-        file=sys.stderr,
-    )
-
-    for event in event_ledger.events:
-        payload = json.dumps(
-            to_plain_json(event.payload),
-            ensure_ascii=False,
-            sort_keys=True,
-        )
+def _print_result(result: SessionRunResult) -> None:
+    print(f"session_id: {result.session_id}")
+    print(f"status: {result.status.value} (step={result.step})")
+    if result.pending_approval is not None:
+        p = result.pending_approval
         print(
-            f"{event.sequence:03d} {event.kind.value} {payload}",
-            file=sys.stderr,
+            f"approval_required: tool={p.tool_name} risk={p.risk_level.value} "
+            f"call_id={p.call_id}"
         )
-
-
-def _positive_integer(value: str) -> int:
-    """Parse one positive CLI integer."""
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("must be a positive integer") from error
-
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be a positive integer")
-
-    return parsed
+        print(f"Run `minicode approve {result.session_id} --decision approve` to continue.")
+    if result.final_answer:
+        print(result.final_answer)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create the command-line argument parser."""
-    parser = argparse.ArgumentParser(
-        prog="minicode",
-        description="A local-first, auditable coding agent runtime.",
-    )
+    """Create the unified MiniCode CLI parser."""
+    parser = argparse.ArgumentParser(prog="minicode", description="MiniCode Agent Runtime")
+    parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--db", type=Path, default=None)
+    parser.add_argument("--skills-dir", type=Path, default=None)
+    parser.add_argument("--max-context-tokens", type=int, default=4096)
 
-    subparsers = parser.add_subparsers(
-        dest="command",
-        required=True,
-    )
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser(
-        "run",
-        help="Run a coding task.",
-    )
-    run_parser.add_argument(
-        "task",
-        help="The coding task to execute.",
-    )
-    run_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show the task without executing it.",
-    )
-    run_parser.add_argument(
-        "--trace",
-        action="store_true",
-        help="Print the ordered execution trace.",
-    )
-    run_parser.add_argument(
-        "--skills-root",
-        type=Path,
-        help="Use Skill instructions from this trusted local directory.",
-    )
-    run_parser.add_argument(
-        "--max-turns",
-        type=_positive_integer,
-        default=8,
-        help="Maximum model turns (default: 8).",
-    )
-    run_parser.add_argument(
-        "--max-tool-calls",
-        type=_positive_integer,
-        default=8,
-        help="Maximum model-requested tool calls (default: 8).",
-    )
+    run_p = sub.add_parser("run", help="Start a new durable coding session.")
+    run_p.add_argument("task", help="Task description.")
+    run_p.add_argument("--session-id", default=None)
+    run_p.add_argument("--max-turns", type=int, default=8)
+    run_p.add_argument("--max-tool-calls", type=int, default=16)
 
-    resume_parser = subparsers.add_parser(
-        "resume",
-        help="Resume a coding task from its latest checkpoint.",
+    resume_p = sub.add_parser("resume", help="Resume an interrupted session.")
+    resume_p.add_argument("session_id")
+
+    approve_p = sub.add_parser("approve", help="Approve or reject a paused tool call.")
+    approve_p.add_argument("session_id")
+    approve_p.add_argument(
+        "--decision",
+        choices=("approve", "reject"),
+        default="approve",
     )
-    resume_parser.add_argument(
-        "run_id",
-        help="The Run ID printed by the original command.",
-    )
-    resume_parser.add_argument(
-        "--trace",
-        action="store_true",
-        help="Print the ordered execution trace.",
-    )
-    resume_parser.add_argument(
-        "--max-turns",
-        type=_positive_integer,
-        default=8,
-        help="Maximum total model turns (default: 8).",
-    )
-    resume_parser.add_argument(
-        "--max-tool-calls",
-        type=_positive_integer,
-        default=8,
-        help="Maximum total model-requested tool calls (default: 8).",
-    )
+    approve_p.add_argument("--reason", default="")
+
+    replay_p = sub.add_parser("replay", help="Print chronological read-only audit replay.")
+    replay_p.add_argument("session_id")
+
+    serve_p = sub.add_parser("serve", help="Start the FastAPI + SSE server.")
+    serve_p.add_argument("--host", default="127.0.0.1")
+    serve_p.add_argument("--port", type=int, default=8000)
 
     return parser
 
 
-def main(
-    argv: Sequence[str] | None = None,
+async def _dispatch_async(
+    args: argparse.Namespace,
     *,
-    max_inline_tool_result_bytes: int | None = None,
-    budgeted_context_configuration: (
-        BudgetedContextProjectionConfiguration | None
-    ) = None,
-    expected_model: str | None = None,
-    model_max_retries: int | None = None,
-    model_budget: ModelRunBudget | None = None,
-    approver: ToolApprover | None = None,
+    model_factory: Callable[[], Model] | None = None,
 ) -> int:
-    """Run the MiniCode command-line interface."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    if args.command == "run":
-        if args.dry_run:
-            print(f"Task: {args.task}")
-            print("Dry run: no files were changed.")
-            return 0
-
-        run_id = f"run_{uuid4().hex}"
-        starting_input: str | RunCheckpoint = args.task
-        print(
-            f"Run ID: {run_id}",
-            file=sys.stderr,
-        )
-    else:
-        run_id = args.run_id
-
-        try:
-            starting_input = _load_checkpoint(
-                run_id,
-                workspace_root=Path.cwd().resolve(),
-                environment=os.environ,
-            )
-        except _CliConfigurationError as error:
-            print(
-                f"Configuration error: {error}",
-                file=sys.stderr,
-            )
-            return 2
-        except _CliCheckpointError as error:
-            print(
-                f"Checkpoint error: {error}",
-                file=sys.stderr,
-            )
-            return 2
-
-        print(
-            f"Resuming Run ID: {run_id}",
-            file=sys.stderr,
-        )
-
-    event_ledger = InMemoryEventLedger(
-        run_id=run_id,
-    )
-    artifact_store = InMemoryArtifactStore() if args.trace else None
-    evaluation_options: _EvaluationRunOptions = {}
-    if model_budget is not None:
-        evaluation_options["model_budget"] = model_budget
-    if approver is not None:
-        evaluation_options["approver"] = approver
+    workspace_root = args.workspace.resolve()
+    db_path = _default_db_path(workspace_root) if args.db is None else args.db
+    storage = SqliteRuntimeStorage(db_path)
 
     try:
-        try:
-            result = asyncio.run(
-                _execute_coding_task(
-                    starting_input,
-                    max_turns=args.max_turns,
-                    max_tool_calls=args.max_tool_calls,
-                    event_ledger=event_ledger,
-                    artifact_store=artifact_store,
-                    max_inline_tool_result_bytes=max_inline_tool_result_bytes,
-                    budgeted_context_configuration=(budgeted_context_configuration),
-                    expected_model=expected_model,
-                    skills_root=(args.skills_root if args.command == "run" else None),
-                    model_max_retries=model_max_retries,
-                    **evaluation_options,
-                )
-            )
-        except _CliConfigurationError as error:
-            print(
-                f"Configuration error: {error}",
-                file=sys.stderr,
-            )
-            return 2
-        except _CliCheckpointError as error:
-            print(
-                f"Checkpoint error: {error}",
-                file=sys.stderr,
-            )
-            return 2
-        except SkillLoadError as error:
-            print(
-                f"Skill error: {error}",
-                file=sys.stderr,
-            )
-            return 2
-        except ModelError as error:
-            print(
-                f"Model error: {error}",
-                file=sys.stderr,
-            )
-            return 1
-        except TimeoutError:
-            print(
-                "Task timed out.",
-                file=sys.stderr,
-            )
-            return 1
-        except KeyboardInterrupt:
-            print(
-                "Task cancelled by user.",
-                file=sys.stderr,
-            )
-            return 130
+        if args.command == "replay":
+            print(replay(args.session_id, storage).render_text())
+            return 0
 
-        if result.response.content:
-            print(result.response.content)
+        skill_registry = (
+            LazySkillRegistry.discover(args.skills_dir)
+            if args.skills_dir is not None
+            else None
+        )
+        extra_instructions = (
+            (skill_registry.render_metadata_prompt(),)
+            if skill_registry is not None
+            else ()
+        )
+        tool_registry = build_local_tool_registry(
+            workspace=Workspace(workspace_root),
+            skill_registry=skill_registry,
+        )
+        model = _build_default_model() if model_factory is None else model_factory()
+        runtime = build_runtime(
+            model=model,
+            storage=storage,
+            tool_registry=tool_registry,
+            max_context_tokens=args.max_context_tokens,
+            extra_instructions=extra_instructions,
+            max_turns=getattr(args, "max_turns", 8),
+            max_tool_calls=getattr(args, "max_tool_calls", 16),
+        )
 
-        if result.stop_reason is not StopReason.COMPLETED:
-            print(
-                f"Task stopped before completion: {result.stop_reason.value}",
-                file=sys.stderr,
+        if args.command == "run":
+            result = await runtime.start(args.task, session_id=args.session_id)
+        elif args.command == "resume":
+            result = await runtime.resume(args.session_id)
+        else:
+            decision = ApprovalDecision(args.decision)
+            result = await runtime.resolve_approval(
+                args.session_id,
+                decision,
+                reason=args.reason,
+                continue_run=decision is ApprovalDecision.APPROVE,
             )
-            return 1
 
+        _print_result(result)
         return 0
     finally:
-        if args.trace:
-            _print_trace(event_ledger)
+        storage.close()
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point."""
+    args = build_parser().parse_args(argv)
+    if args.command == "serve":
+        os.environ.setdefault("MINICODE_WORKSPACE", str(args.workspace.resolve()))
+        if args.db is not None:
+            os.environ["MINICODE_DB_PATH"] = str(args.db.resolve())
+        uvicorn.run(
+            "minicode.api.app:create_default_app",
+            factory=True,
+            host=args.host,
+            port=args.port,
+        )
+        return 0
+    return asyncio.run(_dispatch_async(args))

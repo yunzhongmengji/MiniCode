@@ -20,6 +20,8 @@
 - [M0：工程基础与 CLI](m0-foundations.md)
 - [M1：数据协议与 Fake Model](m1-data-protocols.md)
 - [Agent 面试考点与秋招发展路线](agent-interview-roadmap.md)：当前能力、代码证据、边界、阶段门槛和下一小步。
+- [MiniCode 简历面试问答（完成版设定）](minicode-resume-interview-qa.md)：按简历五项亮点组织的口述、原理、追问与验证方法，单独区分假定完成能力、当前源码证据及待核对数字。
+- [面试侠知识资料包（完成版模拟参考）](../interview/mianshixia/README.md)：分主题检索资料、练习回答规则与导入检查；以简历能力完成为统一设定，不作为个人实绩证明。
 - [MiniCode 源码文件地图](project-file-map.md)：Core、Models、Skills、Tools、外层组装与评测的职责和调用链。
 - [全局复杂度审查与精简建议](simplification-review.md)：重复实现、提前抽象、必要边界，以及分步精简的证据和验收标准。
 - [上下文压缩策略判断](context-compression-strategy.md)：v3 证据、保留窗口、原文恢复边界、推荐方案与小步验收。

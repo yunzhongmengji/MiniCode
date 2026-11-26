@@ -1,0 +1,8 @@
+{
+  "case_id": "03_boundary_pagination",
+  "title": "Off-by-one and boundary condition bug in pagination",
+  "category": "boundary_condition",
+  "prompt": "Fix the pagination boundary bug across service/pagination.py and service/catalog.py so page 1 starts at index 0 and invalid page/page_size inputs raise ValueError.",
+  "expected_skill": "debug_pytest",
+  "verify_script": "verify_test.py"
+}

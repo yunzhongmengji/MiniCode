@@ -102,8 +102,12 @@ async def test_crash_mid_tool_batch_and_cross_process_resume(tmp_path: Path) -> 
             ModelResponse(
                 content="I will inspect a.py and b.py first.",
                 tool_calls=(
-                    ToolCallRecord(call_id="c1", name="read_file", arguments={"path": "a.py"}),
-                    ToolCallRecord(call_id="c2", name="read_file", arguments={"path": "b.py"}),
+                    ToolCallRecord(
+                        call_id="c1", name="read_file", arguments={"path": "a.py"}
+                    ),
+                    ToolCallRecord(
+                        call_id="c2", name="read_file", arguments={"path": "b.py"}
+                    ),
                 ),
                 usage=TokenUsage(input_tokens=100, output_tokens=30),
             ),

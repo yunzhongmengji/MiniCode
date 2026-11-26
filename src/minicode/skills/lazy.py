@@ -63,9 +63,7 @@ def parse_skill_markdown(path: Path) -> SkillDocument:
     name = header_fields.get("name", "")
     description = header_fields.get("description", "")
     keywords_raw = header_fields.get("trigger_keywords", "")
-    keywords = tuple(
-        kw.strip().lower() for kw in keywords_raw.split(",") if kw.strip()
-    )
+    keywords = tuple(kw.strip().lower() for kw in keywords_raw.split(",") if kw.strip())
     body = "\n".join(lines[closing_idx + 1 :]).strip()
 
     metadata = SkillMetadata(
@@ -113,14 +111,10 @@ class LazySkillRegistry:
         """Render a compact catalog prompt containing only Skill metadata."""
         if not self._by_name:
             return ""
-        lines = [
-            "Available Skills (metadata only; call load_skill(name) when needed):"
-        ]
+        lines = ["Available Skills (metadata only; call load_skill(name) when needed):"]
         for meta in self._by_name.values():
             kw = ", ".join(meta.trigger_keywords)
-            lines.append(
-                f"- {meta.name}: {meta.description} [keywords: {kw}]"
-            )
+            lines.append(f"- {meta.name}: {meta.description} [keywords: {kw}]")
         return "\n".join(lines)
 
     def render_all_full_instructions(self) -> str:

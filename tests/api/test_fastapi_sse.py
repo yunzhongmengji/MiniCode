@@ -45,7 +45,9 @@ class _RecordingDockerRunner:
             return SandboxExecutionResult(exit_code=0, stdout=f"{cid}\n", stderr="")
         if len(cmd) >= 2 and cmd[1] == "exec":
             self.execs.append(cmd)
-            return SandboxExecutionResult(exit_code=0, stdout="edited app.py\n", stderr="")
+            return SandboxExecutionResult(
+                exit_code=0, stdout="edited app.py\n", stderr=""
+            )
         if len(cmd) >= 2 and cmd[1] == "rm":
             self.removed.append(cmd[-1])
             return SandboxExecutionResult(exit_code=0, stdout=f"{cmd[-1]}\n", stderr="")
@@ -185,7 +187,9 @@ async def test_fastapi_sse_lifecycle_with_approval_and_replay(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_fastapi_resume_endpoint_recovers_interrupted_task(tmp_path: Path) -> None:
+async def test_fastapi_resume_endpoint_recovers_interrupted_task(
+    tmp_path: Path,
+) -> None:
     """POST /tasks/{id}/resume restarts an interrupted RUNNING checkpoint."""
     db_path = tmp_path / "api_resume.sqlite3"
     docker_runner = _RecordingDockerRunner()

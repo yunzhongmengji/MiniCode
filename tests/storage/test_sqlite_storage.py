@@ -81,19 +81,19 @@ def test_sqlite_transaction_rolls_back_all_writes_on_error(tmp_path: Path) -> No
             pytest.raises(RuntimeError, match="simulated disk failure"),
             storage.database.transaction() as conn,
         ):
-                storage.checkpoint_store.save_in_tx(conn, checkpoint)
-                storage.event_ledger.append_in_tx(
-                    conn,
-                    session_id="sess_rollback",
-                    step=0,
-                    events=(
-                        LedgerEventInput(
-                            event_type=EventType.SESSION_STARTED,
-                            payload={"task": "will rollback"},
-                        ),
+            storage.checkpoint_store.save_in_tx(conn, checkpoint)
+            storage.event_ledger.append_in_tx(
+                conn,
+                session_id="sess_rollback",
+                step=0,
+                events=(
+                    LedgerEventInput(
+                        event_type=EventType.SESSION_STARTED,
+                        payload={"task": "will rollback"},
                     ),
-                )
-                raise RuntimeError("simulated disk failure")
+                ),
+            )
+            raise RuntimeError("simulated disk failure")
 
         assert storage.checkpoint_store.load_latest("sess_rollback") is None
         assert storage.event_ledger.list_events("sess_rollback") == ()

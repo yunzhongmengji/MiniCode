@@ -105,4 +105,6 @@ async def test_ablation_suite_runs_and_generates_comparison_reports(
     md_text = (output_dir / "report.md").read_text(encoding="utf-8")
     assert "full_system" in md_text
     assert "no_skill_routing" in md_text
-    assert (output_dir / "traces" / "full_system" / "01_cross_file_pricing.txt").is_file()
+    assert (
+        output_dir / "traces" / "full_system" / "01_cross_file_pricing.txt"
+    ).is_file()

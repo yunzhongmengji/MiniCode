@@ -108,9 +108,7 @@ class BudgetedContextManager:
             instructions=instructions,
             tool_specs=tool_specs,
         )
-        entry_tokens = [
-            self._estimator.estimate_entry(entry) for entry in history_list
-        ]
+        entry_tokens = [self._estimator.estimate_entry(entry) for entry in history_list]
         original_tokens = overhead + sum(entry_tokens)
         budget = self._config.max_context_tokens
 
@@ -137,9 +135,7 @@ class BudgetedContextManager:
         )
 
         # Build compression candidates from older tool results not in the protected tail.
-        candidates: list[
-            tuple[int, int, ToolResultRecord, CompressedArtifactRef]
-        ] = []
+        candidates: list[tuple[int, int, ToolResultRecord, CompressedArtifactRef]] = []
         for idx in tool_result_indices:
             if idx in protected_indices:
                 continue

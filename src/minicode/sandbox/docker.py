@@ -80,9 +80,7 @@ class DockerSandbox:
         self._workspace_root = workspace_root.resolve()
         self._config = SandboxConfig() if config is None else config
         self._runner: SandboxCommandRunner = (
-            AsyncioSandboxCommandRunner()
-            if command_runner is None
-            else command_runner
+            AsyncioSandboxCommandRunner() if command_runner is None else command_runner
         )
         sanitized = _SAFE_SESSION_RE.sub("-", session_id)[:32]
         self._container_name = f"minicode-sbx-{sanitized}-{uuid4().hex[:8]}"

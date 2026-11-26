@@ -47,14 +47,18 @@ def _print_result(result: SessionRunResult) -> None:
             f"approval_required: tool={p.tool_name} risk={p.risk_level.value} "
             f"call_id={p.call_id}"
         )
-        print(f"Run `minicode approve {result.session_id} --decision approve` to continue.")
+        print(
+            f"Run `minicode approve {result.session_id} --decision approve` to continue."
+        )
     if result.final_answer:
         print(result.final_answer)
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Create the unified MiniCode CLI parser."""
-    parser = argparse.ArgumentParser(prog="minicode", description="MiniCode Agent Runtime")
+    parser = argparse.ArgumentParser(
+        prog="minicode", description="MiniCode Agent Runtime"
+    )
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--skills-dir", type=Path, default=None)
@@ -80,7 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     approve_p.add_argument("--reason", default="")
 
-    replay_p = sub.add_parser("replay", help="Print chronological read-only audit replay.")
+    replay_p = sub.add_parser(
+        "replay", help="Print chronological read-only audit replay."
+    )
     replay_p.add_argument("session_id")
 
     serve_p = sub.add_parser("serve", help="Start the FastAPI + SSE server.")

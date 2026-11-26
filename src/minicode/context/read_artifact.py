@@ -64,9 +64,7 @@ class ReadArtifactTool:
             else active_session_id_var.get()
         )
         if session_id is None:
-            raise ToolExecutionError(
-                "read_artifact requires an active session context"
-            )
+            raise ToolExecutionError("read_artifact requires an active session context")
 
         event = self._event_ledger.get_event(
             arguments.event_id,

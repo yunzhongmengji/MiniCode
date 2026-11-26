@@ -60,9 +60,7 @@ class ToolRiskPolicy:
         risk_level = self._tool_risks.get(tool_name, self._default_risk_level)
         requires_approval = risk_level in self._approval_required_levels
         if tool_name not in self._tool_risks:
-            reason = (
-                f"unclassified tool '{tool_name}' treated as {risk_level.value}"
-            )
+            reason = f"unclassified tool '{tool_name}' treated as {risk_level.value}"
         elif requires_approval:
             reason = (
                 f"tool '{tool_name}' has risk level '{risk_level.value}' "
